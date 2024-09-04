@@ -1,0 +1,2398 @@
+---
+title: "FMP"
+author: "Stavros Dimitriadis"
+date: "2024-02-29"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  word_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+*Preliminaries*
+
+Let's load needed packages.
+
+```{r libs}
+#library(knitr)
+library(MSnbase)
+library(tidyverse)
+library(Biobase)
+library(BiocParallel)
+
+library(xcms)
+library(faahKO)
+library(RColorBrewer)
+library(pander)
+library(pheatmap)
+library(MsExperiment)
+library(stats)
+library(SummarizedExperiment)
+
+```
+
+
+```{r,no.groups}
+
+no.groups <- 6
+
+
+```
+
+
+```{r,pre.post.intervention}
+
+# POSITIVE PRE
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_positive_pre.RData")
+
+
+# For DIFFUSION & PAGERANK
+
+#HC - HEALTHY CONTROL
+
+idx.ranked<-which(Annotated.List.control$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.control$Ranked.Tab$Compound[idx.ranked])  
+
+
+hc.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(hc.myAnalysis)
+
+getExcluded(hc.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+hc.diff.results<-runDiffusion(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+hc.hyp.results<-runHypergeom(
+   object = hc.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+hc.pg.results<-runPagerank(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+hc.myTable.pos.pre.pg <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.pos.pre.pg <- generateResultsGraph(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.pos.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.pos.pre.pg <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# DIFFUSION
+
+hc.myTable.pos.pre.diff <- generateResultsTable(
+    object = hc.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.pos.pre.diff <- generateResultsGraph(
+    object = hc.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.pos.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.diff.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.pos.pre.diff <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# PHYSICAL
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+
+idx.ranked<-which(Annotated.List.physical$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.physical$Ranked.Tab$Compound[idx.ranked])  
+
+
+phy.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(phy.myAnalysis)
+
+getExcluded(phy.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+
+phy.diff.results<-runDiffusion(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+phy.hyp.results<-runHypergeom(
+   object = phy.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+phy.pg.results<-runPagerank(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+phy.myTable.pos.pre.pg <- generateResultsTable(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.pos.pre.pg <- generateResultsGraph(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.pos.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.pg.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.pos.pre.pg <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+phy.myTable.pos.pre.diff <- generateResultsTable(
+    object = phy.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.pos.pre.diff <- generateResultsGraph(
+    object = phy.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.pos.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.diff.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.pos.pre.diff <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# COGNITIVE
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.cognitive$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.cognitive$Ranked.Tab$Compound[idx.ranked])  
+
+
+cog.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(cog.myAnalysis)
+
+getExcluded(cog.myAnalysis)
+
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+cog.diff.results<-runDiffusion(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+cog.hyp.results<-runHypergeom(
+   object = cog.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+cog.pg.results<-runPagerank(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+cog.myTable.pos.pre.pg <- generateResultsTable(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.pos.pre.pg <- generateResultsGraph(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.pos.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.pg.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.pos.pre.pg <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# DIFFUSION
+
+cog.myTable.pos.pre.diff <- generateResultsTable(
+    object = cog.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.pos.pre.diff <- generateResultsGraph(
+    object = cog.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.pos.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.diff.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.pos.pre.diff <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+
+# COMBINED
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.combined$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.combined$Ranked.Tab$Compound[idx.ranked])  
+
+
+comb.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(comb.myAnalysis)
+
+getExcluded(comb.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+comb.diff.results<-runDiffusion(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+comb.hyp.results<-runHypergeom(
+   object = comb.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+comb.pg.results<-runPagerank(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+comb.myTable.pos.pre.pg <- generateResultsTable(
+    object = comb.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.pos.pre.pg <- generateResultsGraph(
+    object = comb.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.pos.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.pg.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.pos.pre.pg <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+comb.myTable.pos.pre.diff <- generateResultsTable(
+    object = comb.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.pos.pre.diff <- generateResultsGraph(
+    object = comb.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.pos.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.diff.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.pos.pre.diff <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+#######################################################################
+
+
+# POSITIVE POST
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_positive_post.RData")
+
+# For DIFFUSION & PAGERANK
+
+#HC - HEALTHY CONTROL
+
+
+idx.ranked<-which(Annotated.List.control$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.control$Ranked.Tab$Compound[idx.ranked])  
+
+
+hc.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(hc.myAnalysis)
+
+getExcluded(hc.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+hc.diff.results<-runDiffusion(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+hc.hyp.results<-runHypergeom(
+   object = hc.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+hc.pg.results<-runPagerank(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+hc.myTable.pos.pre.pg <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.pos.pre.pg <- generateResultsGraph(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.pos.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.pos.pre.pg <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# PAGERANK
+
+hc.myTable.pos.post.pg <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.pos.post.pg <- generateResultsGraph(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.pos.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+   nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.pos.post.pg <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+hc.myTable.pos.post.diff <- generateResultsTable(
+    object = hc.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.pos.post.diff <- generateResultsGraph(
+    object = hc.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.pos.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.diff.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.pos.post.diff <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# PHYSICAL
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+
+idx.ranked<-which(Annotated.List.physical$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.physical$Ranked.Tab$Compound[idx.ranked])  
+
+
+phy.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(phy.myAnalysis)
+
+getExcluded(phy.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+
+phy.diff.results<-runDiffusion(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+phy.hyp.results<-runHypergeom(
+   object = phy.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+phy.pg.results<-runPagerank(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+phy.myTable.pos.post.pg <- generateResultsTable(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.pos.post.pg <- generateResultsGraph(
+    object = phy.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.pos.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.pg.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.pos.post.pg <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+phy.myTable.pos.post.diff <- generateResultsTable(
+    object = phy.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.pos.post.diff <- generateResultsGraph(
+    object = phy.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.pos.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.diff.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.pos.post.diff <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# COGNITIVE
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.cognitive$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.cognitive$Ranked.Tab$Compound[idx.ranked])  
+
+
+cog.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(cog.myAnalysis)
+
+getExcluded(cog.myAnalysis)
+
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+cog.diff.results<-runDiffusion(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+cog.hyp.results<-runHypergeom(
+   object = cog.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+cog.pg.results<-runPagerank(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+
+
+# PAGERANK
+
+cog.myTable.pos.post.pg <- generateResultsTable(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.pos.post.pg <- generateResultsGraph(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.pos.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500,
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.pg.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.pos.post.pg <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+cog.myTable.pos.post.diff <- generateResultsTable(
+    object = cog.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.pos.post.diff <- generateResultsGraph(
+    object = cog.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.pos.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.diff.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.pos.post.diff <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+
+# COMBINED
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.combined$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.combined$Ranked.Tab$Compound[idx.ranked])  
+
+
+comb.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(comb.myAnalysis)
+
+getExcluded(comb.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+comb.diff.results<-runDiffusion(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+comb.hyp.results<-runHypergeom(
+   object = comb.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+comb.pg.results<-runPagerank(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+comb.myTable.pos.post.pg <- generateResultsTable(
+    object = comb.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.pos.post.pg <- generateResultsGraph(
+    object = comb.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.pos.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.pg.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.pos.post.pg <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+comb.myTable.pos.post.diff <- generateResultsTable(
+    object = comb.diff.results, 
+    method = "diffusion",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.pos.post.diff <- generateResultsGraph(
+    object = comb.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.pos.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.diff.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.pos.post.diff <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+###################################################################
+
+
+# NEGATIVE PRE
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_negative_pre.RData")
+
+# For DIFFUSION & PAGERANK
+
+
+#HC - HEALTHY CONTROL
+
+
+idx.ranked<-which(Annotated.List.control$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.control$Ranked.Tab$Compound[idx.ranked])  
+
+
+hc.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(hc.myAnalysis)
+
+getExcluded(hc.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+hc.diff.results<-runDiffusion(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+hc.hyp.results<-runHypergeom(
+   object = hc.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+hc.pg.results<-runPagerank(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+hc.myTable.pos.pre.pg <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.pos.pre.pg <- generateResultsGraph(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.pos.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.pos.pre.pg <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# PAGERANK
+
+hc.myTable.neg.pre.pg <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.neg.pre.pg <- generateResultsGraph(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.neg.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500,, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.neg.pre.pg <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# DIFFUSION
+
+hc.myTable.neg.pre.diff <- generateResultsTable(
+    object = hc.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.neg.pre.diff <- generateResultsGraph(
+    object = hc.diff.results, 
+    method = "diffusion",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.neg.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.diff.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.neg.pre.diff <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# PHYSICAL
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+
+idx.ranked<-which(Annotated.List.physical$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.physical$Ranked.Tab$Compound[idx.ranked])  
+
+
+phy.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(phy.myAnalysis)
+
+getExcluded(phy.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+
+phy.diff.results<-runDiffusion(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+phy.hyp.results<-runHypergeom(
+   object = phy.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+phy.pg.results<-runPagerank(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+phy.myTable.neg.pre.pg <- generateResultsTable(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.neg.pre.pg <- generateResultsGraph(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.neg.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.pg.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.neg.pre.pg <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+phy.myTable.neg.pre.diff <- generateResultsTable(
+    object = phy.diff.results, 
+    method = "diffusion",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.neg.pre.diff <- generateResultsGraph(
+    object = phy.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.neg.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500,
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.diff.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.neg.pre.diff <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+
+
+# COGNITIVE
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.cognitive$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.cognitive$Ranked.Tab$Compound[idx.ranked])  
+
+
+cog.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(cog.myAnalysis)
+
+getExcluded(cog.myAnalysis)
+
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+cog.diff.results<-runDiffusion(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+cog.hyp.results<-runHypergeom(
+   object = cog.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+cog.pg.results<-runPagerank(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+
+
+# PAGERANK
+
+cog.myTable.neg.pre.pg <- generateResultsTable(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.neg.pre.pg <- generateResultsGraph(
+    object = cog.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.neg.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.pg.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.neg.pre.pg <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# DIFFUSION
+
+cog.myTable.neg.pre.diff <- generateResultsTable(
+    object = cog.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.neg.pre.diff <- generateResultsGraph(
+    object = cog.diff.results, 
+    method = "diffusion",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.neg.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.diff.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.neg.pre.diff <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# COMBINED
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.combined$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.combined$Ranked.Tab$Compound[idx.ranked])  
+
+
+comb.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(comb.myAnalysis)
+
+getExcluded(comb.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+comb.diff.results<-runDiffusion(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+comb.hyp.results<-runHypergeom(
+   object = comb.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+comb.pg.results<-runPagerank(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+comb.myTable.neg.pre.pg <- generateResultsTable(
+    object = comb.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.neg.pre.pg <- generateResultsGraph(
+    object = comb.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.neg.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500,
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.pg.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.neg.pre.pg <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+comb.myTable.neg.pre.diff <- generateResultsTable(
+    object = comb.diff.results, 
+    method = "diffusion", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.neg.pre.diff <- generateResultsGraph(
+    object = comb.diff.results, 
+    method = "diffusion",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.neg.pre.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.diff.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.neg.pre.diff <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+###########################################################################
+
+# NEGATIVE POST
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_negative_post.RData")
+
+# PAGERANK - DIFFUSION
+
+
+#HC - HEALTHY CONTROL
+
+
+
+idx.ranked<-which(Annotated.List.control$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.control$Ranked.Tab$Compound[idx.ranked])  
+
+
+hc.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(hc.myAnalysis)
+
+getExcluded(hc.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+hc.diff.results<-runDiffusion(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+hc.hyp.results<-runHypergeom(
+   object = hc.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+hc.pg.results<-runPagerank(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+hc.myTable.pos.pre.pg <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank",
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.pos.pre.pg <- generateResultsGraph(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.pos.pre.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.pos.pre.pg <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# PAGERANK
+
+hc.myTable.neg.post.pg <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.neg.post.pg <- generateResultsGraph(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.neg.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.neg.post.pg <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# DIFFUSION
+
+hc.myTable.neg.post.diff <- generateResultsTable(
+    object = hc.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myGraph.neg.post.diff <- generateResultsGraph(
+    object = hc.diff.results, 
+    method = "diffusion",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+hc.myEnzymes.neg.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.diff.results, 
+    data = fella.data)
+
+
+hc.go.to.graph.neg.post.diff <-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# PHYSICAL
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+
+idx.ranked<-which(Annotated.List.physical$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.physical$Ranked.Tab$Compound[idx.ranked])  
+
+
+phy.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(phy.myAnalysis)
+
+getExcluded(phy.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+# STEP 2 : run enrichment for every available method ()
+
+
+phy.diff.results<-runDiffusion(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+phy.hyp.results<-runHypergeom(
+   object = phy.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+phy.pg.results<-runPagerank(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+
+# PAGERANK
+
+phy.myTable.neg.post.pg <- generateResultsTable(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.neg.post.pg <- generateResultsGraph(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.neg.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.pg.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.neg.post.pg <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+phy.myTable.neg.post.diff <- generateResultsTable(
+    object = phy.diff.results, 
+    method = "diffusion", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myGraph.neg.post.diff <- generateResultsGraph(
+    object = phy.diff.results, 
+    method = "diffusion",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+phy.myEnzymes.neg.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.diff.results, 
+    data = fella.data)
+
+
+phy.go.to.graph.neg.post.diff <-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# COGNITIVE
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.cognitive$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.cognitive$Ranked.Tab$Compound[idx.ranked])  
+
+
+cog.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(cog.myAnalysis)
+
+getExcluded(cog.myAnalysis)
+
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+cog.diff.results<-runDiffusion(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+cog.hyp.results<-runHypergeom(
+   object = cog.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+cog.pg.results<-runPagerank(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+cog.myTable.neg.post.pg <- generateResultsTable(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.neg.post.pg <- generateResultsGraph(
+    object = cog.pg.results, 
+    method = "pagerank",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.neg.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.pg.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.neg.post.pg <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# DIFFUSION
+
+cog.myTable.neg.post.diff <- generateResultsTable(
+    object = cog.diff.results, 
+    method = "diffusion",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myGraph.neg.post.diff <- generateResultsGraph(
+    object = cog.diff.results, 
+    method = "diffusion",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+cog.myEnzymes.neg.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.diff.results, 
+    data = fella.data)
+
+
+cog.go.to.graph.neg.post.diff <-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# COMBINED
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.combined$Ranked.Tab$Ranking <= no.groups)
+
+input.full <- c(Annotated.List.combined$Ranked.Tab$Compound[idx.ranked])  
+
+
+comb.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(comb.myAnalysis)
+
+getExcluded(comb.myAnalysis)
+
+input.fail <- paste0(" ", input.full)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+comb.diff.results<-runDiffusion(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+comb.hyp.results<-runHypergeom(
+   object = comb.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+comb.pg.results<-runPagerank(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+
+# PAGERANK
+
+comb.myTable.neg.post.pg <- generateResultsTable(
+    object = comb.pg.results, 
+    method = "pagerank",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.neg.post.pg <- generateResultsGraph(
+    object = comb.pg.results, 
+    method = "pagerank",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.neg.post.pg <-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.pg.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.neg.post.pg <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+# DIFFUSION
+
+comb.myTable.neg.post.diff <- generateResultsTable(
+    object = comb.diff.results, 
+    method = "diffusion",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myGraph.neg.post.diff <- generateResultsGraph(
+    object = comb.diff.results, 
+    method = "diffusion",
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+comb.myEnzymes.neg.post.diff <-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 500,  
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.diff.results, 
+    data = fella.data)
+
+
+comb.go.to.graph.neg.post.diff <-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# SAVE THE SESSION
+save.image("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_pre_post_intervention_group_comparisons.RDa
+
+
+```
+
+
+
+```{r,group.comparisons.pagerank}
+
+
+# COMPARE GROUPS BETWEEN PRE - POST CONDITIONS PER IONIZATION
+
+# POSITIVE
+
+
+#all_equal(hc.myTable.pos.pre.pg, hc.myTable.pos.post.pg )
+
+#all_equal(phy.myTable.pos.pre.pg, phy.myTable.pos.post.pg )
+
+#all_equal(cog.myTable.pos.pre.pg, cog.myTable.pos.post.pg )
+
+#all_equal(comb.myTable.pos.pre.pg, comb.myTable.pos.post.pg )
+
+# PAGERANK
+
+generics::intersect(hc.myTable.pos.pre.pg$KEGG.id , hc.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(hc.myTable.pos.pre.pg$KEGG.id , hc.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(hc.myTable.pos.post.pg$KEGG.id , hc.myTable.pos.pre.pg$KEGG.id)
+
+
+generics::intersect(phy.myTable.pos.pre.pg$KEGG.id , phy.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(phy.myTable.pos.pre.pg$KEGG.id , phy.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(phy.myTable.pos.post.pg$KEGG.id , phy.myTable.pos.pre.pg$KEGG.id)
+
+
+generics::intersect(cog.myTable.pos.pre.pg$KEGG.id , cog.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(cog.myTable.pos.pre.pg$KEGG.id , cog.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(cog.myTable.pos.post.pg$KEGG.id , cog.myTable.pos.pre.pg$KEGG.id)
+
+generics::intersect(comb.myTable.pos.pre.pg$KEGG.id , comb.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(comb.myTable.pos.pre.pg$KEGG.id , comb.myTable.pos.post.pg$KEGG.id)
+generics::setdiff(comb.myTable.pos.post.pg$KEGG.id , comb.myTable.pos.pre.pg$KEGG.id)
+
+
+
+# DIFFUSION
+
+generics::intersect(hc.myTable.pos.pre.diff$KEGG.id , hc.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(hc.myTable.pos.pre.diff$KEGG.id , hc.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(hc.myTable.pos.post.diff$KEGG.id , hc.myTable.pos.pre.diff$KEGG.id)
+
+
+generics::intersect(phy.myTable.pos.pre.diff$KEGG.id , phy.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(phy.myTable.pos.pre.diff$KEGG.id , phy.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(phy.myTable.pos.post.diff$KEGG.id , phy.myTable.pos.pre.diff$KEGG.id)
+
+
+generics::intersect(cog.myTable.pos.pre.diff$KEGG.id , cog.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(cog.myTable.pos.pre.diff$KEGG.id , cog.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(cog.myTable.pos.post.diff$KEGG.id , cog.myTable.pos.pre.diff$KEGG.id)
+
+generics::intersect(comb.myTable.pos.pre.diff$KEGG.id , comb.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(comb.myTable.pos.pre.diff$KEGG.id , comb.myTable.pos.post.diff$KEGG.id)
+generics::setdiff(comb.myTable.pos.post.diff$KEGG.id , comb.myTable.pos.pre.diff$KEGG.id)
+
+
+
+# NEGATIVE
+
+
+#all_equal(hc.myTable.neg.pre.pg, hc.myTable.neg.post.pg )
+
+#all_equal(phy.myTable.neg.pre.pg, phy.myTable.neg.post.pg )
+
+#all_equal(cog.myTable.neg.pre.pg, cog.myTable.neg.post.pg )
+
+#all_equal(comb.myTable.neg.pre.pg, comb.myTable.neg.post.pg )
+
+
+
+# PAGERANK
+
+generics::intersect(hc.myTable.neg.pre.pg$KEGG.id , hc.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(hc.myTable.neg.pre.pg$KEGG.id , hc.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(hc.myTable.neg.post.pg$KEGG.id , hc.myTable.neg.pre.pg$KEGG.id)
+
+
+generics::intersect(phy.myTable.neg.pre.pg$KEGG.id , phy.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(phy.myTable.neg.pre.pg$KEGG.id , phy.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(phy.myTable.neg.post.pg$KEGG.id , phy.myTable.neg.pre.pg$KEGG.id)
+
+
+generics::intersect(cog.myTable.neg.pre.pg$KEGG.id , cog.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(cog.myTable.neg.pre.pg$KEGG.id , cog.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(cog.myTable.neg.post.pg$KEGG.id , cog.myTable.neg.pre.pg$KEGG.id)
+
+
+
+generics::intersect(comb.myTable.neg.pre.pg$KEGG.id , comb.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(comb.myTable.neg.pre.pg$KEGG.id , comb.myTable.neg.post.pg$KEGG.id)
+generics::setdiff(comb.myTable.neg.post.pg$KEGG.id , comb.myTable.neg.pre.pg$KEGG.id)
+
+
+# DIFFUSION
+
+generics::intersect(hc.myTable.neg.pre.diff$KEGG.id , hc.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(hc.myTable.neg.pre.diff$KEGG.id , hc.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(hc.myTable.neg.post.diff$KEGG.id , hc.myTable.neg.pre.diff$KEGG.id)
+
+
+generics::intersect(phy.myTable.neg.pre.diff$KEGG.id , phy.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(phy.myTable.neg.pre.diff$KEGG.id , phy.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(phy.myTable.neg.post.diff$KEGG.id , phy.myTable.neg.pre.diff$KEGG.id)
+
+
+generics::intersect(cog.myTable.neg.pre.diff$KEGG.id , cog.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(cog.myTable.neg.pre.diff$KEGG.id , cog.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(cog.myTable.neg.post.diff$KEGG.id , cog.myTable.neg.pre.diff$KEGG.id)
+
+
+generics::intersect(comb.myTable.neg.pre.diff$KEGG.id , comb.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(comb.myTable.neg.pre.diff$KEGG.id , comb.myTable.neg.post.diff$KEGG.id)
+generics::setdiff(comb.myTable.neg.post.diff$KEGG.id , comb.myTable.neg.pre.diff$KEGG.id)
+
+
+
+
+
+
+#########################################
+
+# PAGERANK
+hc<-generics::setdiff(hc.myTable.neg.post.pg$KEGG.id , hc.myTable.neg.pre.pg$KEGG.id)
+phy<-generics::setdiff(phy.myTable.neg.post.pg$KEGG.id , phy.myTable.neg.pre.pg$KEGG.id)
+cog<-generics::setdiff(cog.myTable.neg.post.pg$KEGG.id , cog.myTable.neg.pre.pg$KEGG.id)
+comb<-generics::setdiff(comb.myTable.neg.post.pg$KEGG.id , comb.myTable.neg.pre.pg$KEGG.id)
+
+
+generics::setdiff(hc,phy)
+generics::setdiff(hc,cog)
+generics::setdiff(hc,comb)
+
+
+# DIFFUSION
+hc<-generics::setdiff(hc.myTable.neg.post.diff$KEGG.id , hc.myTable.neg.pre.diff$KEGG.id)
+phy<-generics::setdiff(phy.myTable.neg.post.diff$KEGG.id , phy.myTable.neg.pre.diff$KEGG.id)
+cog<-generics::setdiff(cog.myTable.neg.post.diff$KEGG.id , cog.myTable.neg.pre.diff$KEGG.id)
+comb<-generics::setdiff(comb.myTable.neg.post.diff$KEGG.id , comb.myTable.neg.pre.diff$KEGG.id)
+
+
+generics::setdiff(hc,phy)
+generics::setdiff(hc,cog)
+generics::setdiff(hc,comb)
+
+
+```
+
+
+```{r, make.plots}
+
+
+
+
+plot(
+    x = hc.diff.results, 
+    method = "diffusion", 
+    main = "Enrichment using the pagerank test in for HC group in Positive Ionization", 
+    threshold = 0.1, 
+    nlimit = 500,
+    data = fella.data)
+
+
+
+
+
+```
+
+
+
+```{r,write.metabolites}
+
+setwd("C:\Users\mpnsd\Desktop\BARCELONA\MOVIMENT-PROJECT\Metabolomics")
+
+write.table(metabolites,  file = "hc_metabolites_positive_pre.txt", quote = FALSE, sep ="\t" ,row.names = FALSE, col.names = TRUE)
+
+
+
+```

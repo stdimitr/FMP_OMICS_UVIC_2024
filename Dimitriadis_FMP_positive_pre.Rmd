@@ -1,0 +1,1869 @@
+---
+title: "FMP"
+author: "Stavros Dimitriadis"
+date: "2024-02-29"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  word_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+*Preliminaries*
+
+Let's load needed packages.
+
+```{r libs}
+#library(knitr)
+library(MSnbase)
+library(tidyverse)
+library(Biobase)
+library(BiocParallel)
+
+library(xcms)
+library(faahKO)
+library(RColorBrewer)
+library(pander)
+library(pheatmap)
+library(MsExperiment)
+library(stats)
+library(SummarizedExperiment)
+library(mWISE)
+library(FELLA)
+
+```
+
+
+
+```{r,read.mzml}
+
+
+rawmsdata.path<-"C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/datasets/HILIC_Positive/moviment_pre"
+# mind your working directory!
+
+file <- dir(rawmsdata.path,
+            full.name = TRUE,
+            pattern = ".mzML")
+
+idx<-c(13,38,46,55,73,1,7:12,14:37,39:45,47:54,56:72,74:82)
+
+file_sorted<-file[idx]
+
+
+#mem <- readMSData(file, mode = "inMemory")
+#mem
+
+
+#Load data raw MS data using readMSData
+dsk<-readMSData(file,mode="onDisk")
+
+class(dsk)
+dsk
+
+
+pd <- data.frame(sample_name = sub(basename(file), pattern = ".mzML",
+                                   replacement = "", fixed = TRUE),
+                 sample_group  = c(2,3,0,1,2,2,0,0,3,0,0,0,2,1,0,3,1,3,1,1,3,2,2,0,0,1,1,1,2,0,
+                                   0,2,0,1,1,0,2,2,0,2,1,1,3,3,0,1,3,1,1,1,0,2,0,3,2,3,0,2,3,2,
+                                   1,2,3,1,1,1,3,1,2,0,0,0,0,0,3,1,0,0,2,1,3,2))
+
+
+mov <- readMsExperiment(spectraFiles = file, sampleData = pd)
+mov
+
+```
+
+
+```{r,first.observations}
+
+spectra(mov)
+
+table(fromFile(mov))
+
+
+sampleData(mov)
+
+
+```
+
+
+
+```{r,chrom.peaks.all.samples}
+
+
+## Get the base peak chromatograms. This reads data from the files.
+bpis <- chromatogram(mov, aggregationFun = "max")
+
+## Define colors for the two groups
+group_colors <- paste0(brewer.pal(4, "Set1")[1:4], "60")
+#names(group_colors) <- c("Physical_group", "Cognitive_group","Combined_group","Control_group")
+
+## Plot all chromatograms.
+#with group labels
+plot(bpis, col = group_colors[sampleData(mov)$sample_group])
+
+# without group labels
+plot(bpis)
+
+```
+
+
+*We next create boxplots representing the distribution of the total ion currents per data file. Such plots can be very useful to spot potentially problematic MS runs. To extract this information, we use the tic() function on the Spectra object within faahko and split the values by file using fromFile().*
+
+
+
+
+```{r, chromaograms.individual}
+
+
+bpi_1 <- bpis[1, 1]
+rtime(bpi_1) |> head()
+
+
+intensity(bpi_1) |> head()
+
+
+#test <- filterRt(mov, rt = c(2550, 4250))
+
+
+## Filter spectra
+
+## creating the BPC on the subsetted data
+#bpis <- chromatogram(test, aggregationFun = "max")
+
+
+## Get the total ion current by file
+tc <- spectra(mov) |>
+    tic() |>
+    split(f = fromFile(mov))
+boxplot(tc, col = group_colors[sampleData(mov)$sample_group],
+        ylab = "intensity", main = "Total ion current")
+
+
+```
+
+*In addition, we can also cluster the samples based on similarity of their base peak chromatograms. Samples would thus be grouped based on similarity of their LC runs. For that we need however to bin the data along the retention time axis, since retention times will generally differ between samples. Below we use the bin() function on the BPC to bin intensities into 2 second wide retention time bins. The clustering is then performed using complete linkage hierarchical clustering on the pairwise correlations of the binned base peak chromatograms.*
+
+
+```{r,hierarcical.clustering}
+
+## Bin the BPC
+bpis_bin <- bin(bpis, binSize = 0.25)
+
+## Calculate correlation on the log2 transformed base peak intensities
+cormat <- cor(do.call(cbind, lapply(bpis_bin, intensity)))
+colnames(cormat) <- rownames(cormat) <- bpis_bin$sample_name
+
+## Define which phenodata columns should be highlighted in the plot
+ann <- data.frame(group = bpis_bin$sample_group)
+rownames(ann) <- bpis_bin$sample_name
+
+## Perform the cluster analysis
+pheatmap(cormat, annotation = ann,
+         annotation_color = list(group = group_colors))
+
+
+
+```
+
+
+
+*Chromatographic peak detection*
+
+
+```{r,chrom.peak.detection}
+
+
+
+# Define the rt and m/z range of the peak area
+rtr <- c(350, 380)
+mzr <- c(334.9, 335.1)
+
+
+## extract the chromatogram
+
+chr_raw <- chromatogram(mov, mz = mzr, rt = rtr)
+
+## Make a plot
+plot(chr_raw, col = group_colors[chr_raw$sample_group])
+
+
+# Make a plot for the first 10 samples
+mov[1:10,] |>
+filterRt(rt = rtr) |>
+filterMz(mz = mzr) |>
+plot(type = "XIC")
+
+
+# get chrom peaks - chromPeaks()
+
+
+cwp <- CentWaveParam()
+
+## Change snthresh parameter
+#snthresh(cwp) <- 5
+cwp
+
+xchr <- findChromPeaks(chr_raw, param = CentWaveParam(snthresh = 2))
+
+chromPeaks(xchr)
+
+chromPeakData(xchr)
+
+
+## Define a color for each sample
+sample_colors <- group_colors[xchr$sample_group]
+## Define the background color for each chromatographic peak
+bg <- sample_colors[chromPeaks(xchr)[, "column"]]
+## Parameter `col` defines the color of each sample/line, `peakBg` of each
+## chromatographic peak.
+plot(xchr, col = sample_colors, peakBg = bg)
+
+
+
+# Parameters for CentWaveParam:
+cwp <- CentWaveParam(peakwidth = c(20, 80), noise = 5000,
+                     prefilter = c(6, 5000))
+
+cwp <- CentWaveParam()
+snthresh(cwp) <- 2
+cwp
+
+
+
+#mov.filter <- filterRt(mov, rt = rtr)
+
+mov.peaks <- findChromPeaks(mov, param = cwp)
+
+chromPeaks(mov.peaks) |>
+    head()
+
+chromPeakData(mov.peaks)
+
+
+mpp <- MergeNeighboringPeaksParam(expandRt = 4)
+mov.peaks.mpp <- refineChromPeaks(mov.peaks, mpp)
+
+```
+
+
+*Below we use the data from the chromPeaks() matrix to calculate per-file summaries of the peak detection results, such as the number of peaks per file as well as the distribution of the retention time widths.*
+
+```{r,peak.detection.summary}
+
+
+
+
+summary_fun <- function(z)
+    c(peak_count = nrow(z), rt = quantile(z[, "rtmax"] - z[, "rtmin"]))
+
+T <- chromPeaks(mov.peaks.mpp) |>
+    split.data.frame(f = chromPeaks(mov.peaks.mpp)[, "sample"]) |>
+    lapply(FUN = summary_fun) |>
+    do.call(what = rbind)
+rownames(T) <- basename(fileNames(mov.peaks.mpp))
+pandoc.table(
+    T,
+    caption = paste0("Summary statistics on identified chromatographic",
+                     " peaks. Shown are number of identified peaks per",
+                     " sample and widths/duration of chromatographic ",
+                     "peaks."))
+
+
+
+
+
+```
+
+*We can also plot the location of the identified chromatographic peaks in the m/z - retention time space for one file using the plotChromPeaks() function. Below we plot this information for the third sample.*
+
+
+```{r,plot.chrom.peaks.sample}
+
+plotChromPeaks(mov.peaks.mpp, file = 1)
+
+plotChromPeaks(mov.peaks.mpp, file = 2)
+
+plotChromPeaks(mov.peaks.mpp, file = 3)
+
+plotChromPeaks(mov.peaks.mpp, file = 4)
+
+
+```
+
+
+
+
+*As a general overview of the peak detection results we can in addition visualize the number of identified chromatographic peaks per file along the retention time axis. Parameter binSize allows to define the width of the bins in rt dimension in which peaks should be counted. This number of chromatographic peaks within each bin is then shown color-coded in the resulting plot.*
+
+
+```{r,total.chrom.peaks}
+
+plotChromPeakImage(mov.peaks.mpp, binSize = 10)
+
+
+
+
+
+
+```
+
+
+*Finally we plot also the distribution of peak intensity per sample. This allows to investigate whether systematic differences in peak signals between samples are present.*
+
+
+```{r,peak.intensity.distribution.sample}
+#Extract a list of per-sample peak intensities (in log2 scale)
+
+sample_colors <- group_colors[pd$sample_group+1]
+
+ints <- split(log2(chromPeaks(mov.peaks.mpp[1:41])[, "into"]),
+              f = chromPeaks(mov.peaks.mpp[1:41])[, "sample"])
+boxplot(ints, varwidth = TRUE, col = sample_colors,
+        ylab = expression(log[2]~intensity), main = "Peak intensities")
+grid(nx = NA, ny = NULL)
+
+
+ints <- split(log2(chromPeaks(mov.peaks.mpp[42:82])[, "into"]),
+              f = chromPeaks(mov.peaks.mpp[42:82])[, "sample"])
+boxplot(ints, varwidth = TRUE, col = sample_colors,
+        ylab = expression(log[2]~intensity), main = "Peak intensities")
+grid(nx = NA, ny = NULL)
+
+
+```
+
+
+
+*Alignment*
+
+
+```{r, alignment}
+
+
+# Do the alignment
+
+mov.peaks.mpp.align<- adjustRtime(mov.peaks.mpp, param = ObiwarpParam(binSize = 0.6))
+
+
+## Extract adjusted retention times
+adjustedRtime(mov.peaks.mpp.align) |> head()
+
+## Or simply use the rtime method
+rtime(mov.peaks.mpp.align) |> head()
+
+## Get raw (unadjusted) retention times
+rtime(mov.peaks.mpp.align, adjusted = FALSE) |> head()
+
+
+
+
+```
+
+
+*To evaluate the impact of the alignment we plot the BPC on the adjusted data. In addition we plot also the differences between the adjusted and the raw retention times per sample using the plotAdjustedRtime() function. To disable the automatic extraction of all identified chromatographic peaks by the chromatogram() function (which would not make much sense for a BPC) we use chromPeaks = "none" below.*
+
+
+
+```{r,alignment.evaluate}
+
+
+## Get the base peak chromatograms.
+bpis_adj <- chromatogram(mov.peaks.mpp.align, aggregationFun = "max", chromPeaks = "none")
+par(mfrow = c(3, 1), mar = c(4.5, 4.2, 1, 0.5))
+
+plot(bpis, col = sample_colors)
+grid()
+
+plot(bpis_adj, col = sample_colors)
+grid()
+
+## Plot also the difference of adjusted to raw retention time.
+plotAdjustedRtime(mov.peaks.mpp.align, col = sample_colors)
+grid()
+
+
+
+```
+
+
+
+*Too large differences between adjusted and raw retention times could indicate poorly performing samples or alignment.*
+
+*At last we evaluate also the impact of the alignment on the test peak.*
+
+
+```{r,adj.retention.times.peak}
+
+par(mfrow = c(2, 1))
+## Plot the raw data
+plot(chr_raw, col = sample_colors)
+grid()
+## Extract the chromatogram from the adjusted object
+chr_adj <- chromatogram(mov.peaks.mpp.align, rt = rtr, mz = mzr)
+plot(chr_adj, col = sample_colors, peakType = "none")
+grid()
+
+
+
+```
+
+
+
+
+*Correspondence*
+
+
+```{r, correspondence}
+
+
+## Perform the correspondence using fixed m/z bin sizes.
+pdp <- PeakDensityParam(sampleGroups = sampleData(mov.peaks.mpp.align)$sample_group,
+                        minFraction = 0.4, bw = 30)
+mov.peaks.mpp.align.corr <- groupChromPeaks(mov.peaks.mpp.align, param = pdp)
+
+
+
+#As an alternative we perform the correspondence using m/z relative bin #sizes.
+
+## Drop feature definitions and re-perform the correspondence
+## using m/z-relative bin sizes.
+mov.peaks.mpp.align.corr.ppm <- groupChromPeaks(
+    dropFeatureDefinitions(mov.peaks.mpp.align.corr),
+    PeakDensityParam(sampleGroups = sampleData(mov.peaks.mpp.align.corr)$sample_group,
+                     minFraction = 0.4, bw = 30))
+
+
+## Calculate m/z width of features
+mzw <- featureDefinitions(mov.peaks.mpp.align.corr)$mzmax - featureDefinitions(mov.peaks.mpp.align.corr)$mzmin
+mzw_ppm <- featureDefinitions(mov.peaks.mpp.align.corr.ppm)$mzmax -
+                                        featureDefinitions(mov.peaks.mpp.align.corr.ppm)$mzmin
+
+plot(featureDefinitions(mov.peaks.mpp.align.corr.ppm)$mzmed, mzw_ppm,
+     xlab = "m/z", ylab = "m/z width", pch = 21,
+     col = "#0000ff20", bg = "#0000ff10")
+
+points(featureDefinitions(mov.peaks.mpp.align.corr)$mzmed, mzw, pch = 21,
+     col = "#ff000020", bg = "#ff000010")
+
+
+featureDefinitions(mov.peaks.mpp.align.corr) |> head()
+
+
+featureValues(mov.peaks.mpp.align.corr, value = "into") |> head()
+
+
+
+
+
+
+```
+
+
+
+*The performance of peak detection, alignment and correspondence should always be evaluated by inspecting extracted ion chromatograms e.g. of known compounds, internal standards or identified features in general. The featureChromatograms() function allows to extract chromatograms for each feature present in featureDefinitions().* 
+
+
+
+```{r,chromatograms}
+
+##
+feature_chroms <- featureChromatograms(mov.peaks.mpp.align.corr, features = 1:4)
+
+feature_chroms
+
+#And plot the extracted ion chromatograms. We again use the group color for each identified #peak to fill the area.
+
+plot(feature_chroms, col = sample_colors,
+     peakBg = sample_colors[chromPeaks(feature_chroms)[, "sample"]])
+
+
+#To access the EICs of the second feature we can simply subset the feature_chroms object.
+
+eic_2 <- feature_chroms[2, ]
+chromPeaks(eic_2)
+
+
+```
+
+
+
+*Gap Filling*
+
+
+```{r, gap.filling}
+
+
+mov.peaks.mpp.align.corr.gap <- fillChromPeaks(mov.peaks.mpp.align.corr, param = ChromPeakAreaParam())
+
+featureValues(mov.peaks.mpp.align.corr.gap, value = "into") |> head()
+
+
+
+```
+
+
+
+*Save summarized experiment*
+
+
+```{r,summary.experiment}
+
+
+
+res <- quantify(mov.peaks.mpp.align.corr.gap, value = "into", method = "sum")
+res
+
+rowData(res)
+
+assayNames(res)
+
+assay(res) |> head()
+
+
+metadata(res)
+
+
+
+```
+
+
+```{r,QC}
+
+
+# Set up parameters for RsdFilter
+rsd_filter <- RsdFilter(threshold = 0.3,qcIndex = sampleData(mov.peaks.mpp.align.corr.gap)$sample_type == "QC")
+
+# Apply the filter to faakho object
+filtered_mov <- filterFeatures(object = mov.peaks.mpp.align.corr.gap, filter = rsd_filter)
+
+
+# Now apply the same strategy to the res object
+rsd_filter <- RsdFilter(threshold = 0.3, qcIndex = res$sample_type == "QC")
+filtered_res <- filterFeatures(object = res, filter = rsd_filter, assay = "raw")
+
+
+
+```
+
+
+
+
+*mWISE*
+*Annotating LC-MS data at once*
+*The wrapper function `mWISE.annotation` applies the whole mWISE pipeline at once*
+
+```{r, mWISE}
+
+
+library(mWISE)
+
+data("KeggDB")
+head(KeggDB)
+
+
+data("Info.Add")
+head(Info.Add)
+
+data("sample.keggDB")
+Cpd.Add <- CpdaddPreparation(KeggDB = sample.keggDB, do.Par = FALSE)
+head(Cpd.Add)
+
+
+Peak.List.test <- as.data.frame(mov.peaks.mpp.align.corr.gap@featureDefinitions )
+
+x<-Peak.List.test$peakidx
+
+idx<-NULL
+for (i in 1:2079) {
+  dd<-0
+  dd<-x[i]
+  idx[i] <- unlist(dd)[1]
+}
+
+
+# Change column names
+
+colnames(Peak.List.test)[1] <- "mz"
+colnames(Peak.List.test)[3] <- "mzmax"
+colnames(Peak.List.test)[4] <- "rt"
+colnames(Peak.List.test)[12] <- "Peak.Id"
+
+#colnames(Peak.List.test)[14]<-"pcgroup"
+
+Peak.List.test[12] <-idx
+
+#Get Intensities values
+
+Int <- featureValues(mov.peaks.mpp.align.corr.gap, value = "into") 
+
+
+######### SCALING THE INTENSITIES ACROSS SUBJECTS DIMENSIONS
+
+#Int.scaled <- scale(Int, center = TRUE, scale = TRUE)
+
+Int.scaled <- unname(scale(Int, center = TRUE, scale = TRUE))
+
+# Substitute NA with the mean across subjects
+
+for (i in 1:2079){
+    xx<-which(is.na(Int[i,]))
+    
+    if (isEmpty(xx) == FALSE){
+       dd<-unname(xx)
+       
+       sub<-matrix(0, 1, 82)
+       sub<-Int[i,]
+       
+       seqq<-seq(1,82)
+       seqq<-seqq[-c(dd)]
+       
+       sub[dd]<-mean(Int[i,seqq])
+       Int[i,]<-sub
+       
+}
+}
+
+
+# ADD THE INTENSITIES
+Peak.List.new<-NULL
+Peak.List.new<-Peak.List.test
+
+for (i in 1:82){
+    Peak.List.new[,13+i] <- unname(Int[,i])
+}
+
+############################PREPROCESSING OF INTENSITIES VALUES
+#Estimate the coefficient of variation
+# per feature
+
+cv<-NULL
+
+for (i in 1:2079){
+    data <-unname(Int[i,])
+    idx.not.na <-which(!is.na(data))
+    cv[i] <- sd(data[idx.not.na]) / mean(data[idx.not.na]) * 100
+}
+
+
+
+# GET THE INDEXES OF THE FEATURES WITH A CV HIGHER THAN 30 %
+idx.cv <- which(cv > 30)
+
+
+# GET THE FEATURES WITH AT LEAST ONE NAN ACROSS SUBJECTS/SAMPLES
+#na.feat <- which(is.na(Int))
+
+
+# GET THE INDEX OF FEATURES WITH NO NAN & CV > 30 %
+ii<-1:1:2079
+
+ii <- ii[-c(idx.cv)]
+
+idx.feat <- ii
+
+#############################################
+
+#Peak.List.test$npeaks <-mov.peaks.mpp.align.corr.gap@featureDefinitions$npeaks
+
+#Peak.List.test$Peak.Id <-mov.peaks.mpp.align.corr.gap@featureDefinitions$Peak.Id
+
+Intensity.idx <- seq(14,95)
+
+data("sample.graph")
+g.metab <- igraph::as.undirected(sample.graph)
+
+## REMOVE FEATURES WITH NAN INPUT & CV <=30
+
+Peak.List.new.feat<-NULL
+Peak.List.new.feat <- Peak.List.new
+
+#Peak.List.new.feat <- Peak.List.new[idx.feat,] 
+
+
+# GIVE A RUN TO THE WHOLE DATASET
+
+Annotated.List <- mWISE.annotation(Peak.List = Peak.List.new.feat,
+                                    polarity = "positive",
+                                   force.mass.range = TRUE,
+                                   mass.range.type = "ppm.mode",
+                                   mz.range = NULL, 
+                                   ppm =10,
+                                   Add.List=NULL,
+                                   diffusion.input.type = "probability",
+                                   use = "everything",
+                                   method = "pearson", 
+                                   Freq = 0.5,
+                                   Rt.05 = 5,
+                                   score = "z",
+                                   Cpd.Add = Cpd.Add,
+                                   graph = g.metab,
+                                   Unique.Annotation = TRUE,
+                                   graph.name = "fella",
+                                   Intensity.idx = Intensity.idx,
+                                   do.Par = FALSE, 
+                                   nClust =2)
+
+
+# RUN THE MWISE PER GROUP BELOW
+
+
+
+```
+
+
+
+
+## Evaluating the performance
+
+Finally, the `performanceEvaluation` function can be used to compute 
+the performance metrics, using the benchmark data frame `df.Ref`. 
+The argument `top.cmps` defines the top K candidates considered 
+for the evaluation. 
+
+```{r,mWISE.performance}
+performanceEvaluation(Annotated.dataset = Annotated.dataset, 
+                      df.Ref = df.Ref, top.cmps = 3)
+```
+
+
+
+
+
+
+```{r,mwise.control}
+
+
+idx.control <- which(pd$sample_group == 3)
+
+idxx <- c(13+idx.control)
+
+Intensity.idx <- as.integer(idxx)
+
+
+#Peak.List.new.feat <- Peak.List.new
+
+
+
+Annotated.List.control <- mWISE.annotation(Peak.List =Peak.List.new.feat,
+                                   polarity = "positive",
+                                   force.mass.range = TRUE,
+                                   mass.range.type = "ppm.mode",
+                                   mz.range = NULL, 
+                                   ppm =10,
+                                   Add.List=NULL,
+                                   diffusion.input.type = "probability",
+                                   use = "everything",
+                                   method = "pearson", 
+                                   Freq = 0.5,
+                                   Rt.05 = 5,
+                                   score = "z",
+                                   Cpd.Add = Cpd.Add,
+                                   graph = g.metab,
+                                   Unique.Annotation = TRUE,
+                                   graph.name = "fella",
+                                   Intensity.idx = Intensity.idx,
+                                   do.Par = FALSE, 
+                                   nClust =2)
+
+
+
+
+
+```
+
+
+
+
+```{r,mwise.physical}
+
+
+
+idx.physical <- which(pd$sample_group == 0)
+
+
+idxx <- c(13+idx.physical)
+
+Intensity.idx <- as.integer(idxx)
+
+
+#Peak.List <- Peak.List.new.feat[ ,13+idx.physical]
+
+Annotated.List.physical<- mWISE.annotation(Peak.List =Peak.List.new.feat,
+                                   polarity = "positive",
+                                   force.mass.range = TRUE,
+                                   mass.range.type = "ppm.mode",
+                                   mz.range = NULL, 
+                                   ppm =10,
+                                   Add.List=NULL,
+                                   diffusion.input.type = "probability",
+                                   use = "everything",
+                                   method = "pearson", 
+                                   Freq = 0.5,
+                                   Rt.05 = 5,
+                                   score = "z",
+                                   Cpd.Add = Cpd.Add,
+                                   graph = g.metab,
+                                   Unique.Annotation = TRUE,
+                                   graph.name = "fella",
+                                   Intensity.idx = Intensity.idx,
+                                   do.Par = FALSE, 
+                                   nClust =2)
+
+
+
+
+
+```
+
+
+
+```{r,mwise.cognitive}
+
+
+
+
+idx.cognitive <- which(pd$sample_group == 1)
+
+
+idxx <- c(13+idx.cognitive)
+
+Intensity.idx <- as.integer(idxx)
+
+
+#Peak.list <- Peak.List.new.feat[ ,13+idx.cognitive]
+
+Annotated.List.cognitive <- mWISE.annotation(Peak.List =Peak.List.new.feat,
+                                   polarity = "positive",
+                                   force.mass.range = TRUE,
+                                   mass.range.type = "ppm.mode",
+                                   mz.range = NULL, 
+                                   ppm =10,
+                                   Add.List=NULL,
+                                   diffusion.input.type = "probability",
+                                   use = "everything",
+                                   method = "pearson", 
+                                   Freq = 0.5,
+                                   Rt.05 = 5,
+                                   score = "z",
+                                   Cpd.Add = Cpd.Add,
+                                   graph = g.metab,
+                                   Unique.Annotation = TRUE,
+                                   graph.name = "fella",
+                                   Intensity.idx = Intensity.idx,
+                                   do.Par = FALSE, 
+                                   nClust =2)
+
+
+
+```
+
+
+
+```{r,mwise.combined}
+
+
+
+idx.combined <- which(pd$sample_group == 2)
+
+
+
+idxx <- c(13+idx.combined)
+
+Intensity.idx <- as.integer(idxx)
+
+
+#Peak.list <- Peak.List.new.feat[ ,13+idx.combined]
+
+
+Annotated.List.combined <- mWISE.annotation(Peak.List =Peak.List.new.feat,
+                                   polarity = "positive",
+                                   force.mass.range = TRUE,
+                                   mass.range.type = "ppm.mode",
+                                   mz.range = NULL, 
+                                   ppm =10,
+                                   Add.List=NULL,
+                                   diffusion.input.type = "probability",
+                                   use = "everything",
+                                   method = "pearson", 
+                                   Rt.05 = 5,
+                                   score = "z",
+                                   Cpd.Add = Cpd.Add,
+                                   graph = g.metab,
+                                   Unique.Annotation = TRUE,
+                                   Intensity.idx = Intensity.idx,
+                                   do.Par = FALSE, 
+                                   nClust =2)
+
+
+
+
+```
+
+
+
+
+```{r,FELLA}
+
+
+library(igraph)
+library(magrittr)
+
+library(FELLA)
+#library(AnnotationDbi)
+
+library(org.Hs.eg.db)
+library(KEGGREST)
+
+library(biomaRt)
+
+
+### FELLA PREPROCESSING
+
+## ORGANISM STEPS
+
+#STEP 1 : run buildGraphFromKEGGREST()
+set.seed(1)
+# Filter overview pathways
+graph <- buildGraphFromKEGGREST(
+    organism = "hsa", 
+    filter.path = c("01100", "01200", "01210", "01212", "01230"))
+
+
+tmpdir <- paste0(tempdir(), "/my_database")
+
+
+#STEP 2 : run buildDataFromGraph()
+buildDataFromGraph(
+    keggdata.graph = graph, 
+    databaseDir = tmpdir, 
+    internalDir = FALSE, 
+    matrices = c("hypergeom", "diffusion",
+"pagerank"), normality = c("diffusion", "pagerank"),
+dampingFactor = 0.85, niter = 100)
+
+
+#STEP 3 : run loadKEGGdata()
+fella.data <- loadKEGGdata(
+    databaseDir = tmpdir, 
+    internalDir = FALSE, 
+    loadMatrix = "none"
+)
+
+
+
+##### DATA - METABOLITES DERIVED FROM PARTICULAR STUDY
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.control$Ranked.Tab$Ranking <=3)
+
+input.full <- c(Annotated.List.control$Ranked.Tab$Compound[idx.ranked])  
+
+
+myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(myAnalysis)
+
+getExcluded(myAnalysis)
+
+
+
+input.fail <- paste0(" ", input.full)
+defineCompounds(
+    compounds = input.fail, 
+    data = fella.data)
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+diff.results<-runDiffusion(
+    object = myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+hyp.results<-runHypergeom(
+   object = myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+pg.results<-runPagerank(
+    object = myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+  
+  ############################
+
+myAnalysis <- enrich(
+    compounds = input.full, 
+    method = listMethods(), 
+    approx = "normality", 
+    data = fella.data)
+
+show(myAnalysis)
+
+
+
+# STEP 3 : show the findings
+
+plot(
+    x = myAnalysis, 
+    method = "hypergeom", 
+    main = "My first enrichment using the hypergeometric test in FELLA", 
+    threshold = 1, 
+    data = fella.data)
+
+
+plot(
+    x = myAnalysis, 
+    method = "diffusion", 
+    main = "My first enrichment using the hypergeometric test in FELLA", 
+    threshold = 1, 
+    data = fella.data)
+
+
+
+plot(
+    x = myAnalysis, 
+    method = "pagerank", 
+    main = "My first enrichment using the hypergeometric test in FELLA", 
+    threshold = 1, 
+    data = fella.data)
+
+
+# STEP 4 : GENERATE RESULTS IN TABLE AND GRAPH
+
+# For diffusion
+myTable <- generateResultsTable(
+    object = diff.results, 
+    method = "diffusion", 
+    threshold = 0.1, 
+    data = fella.data)
+
+myTable[myTable$Entry.type == "pathway", ]
+
+myGraph <- generateResultsGraph(
+    object = diff.results, 
+    method = "diffusion", 
+    threshold = 0.1, 
+    data = fella.data)
+
+show(myGraph)
+
+
+myEnzymes<-generateEnzymesTable(
+    method = "diffusion", 
+    threshold = 0.05, 
+    nlimit = 250, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = diff.results, 
+    data = fella.data)
+
+
+go.to.graph<-addGOToGraph(
+    graph = myGraph, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+# For hypergeom
+
+myTable <- generateResultsTable(
+    object = hyp.results, 
+    method = "hypergeom", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# Pathways
+myTable[myTable$Entry.type == "CompoundsInPathway", ]
+
+
+myGraph <- generateResultsGraph(
+    object = hyp.results, 
+    method = "hypergeom", 
+    threshold = 0.1, 
+    data = fella.data)
+
+show(myGraph)
+
+# Metabolites
+#V(myGraph)$name
+
+
+myEnzymes<-generateEnzymesTable(
+    method = "hypergeom", 
+    threshold = 0.05, 
+    nlimit = 250, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hyp.results, 
+    data = fella.data)
+
+
+go.to.graph<-addGOToGraph(
+    graph = myGraph, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+
+# For PageRank
+
+myTable <- generateResultsTable(
+    object = pg.results, 
+    method = "pagerank", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# Pathways
+myTable[myTable$Entry.type == "CompoundsInPathway", ]
+
+
+myGraph <- generateResultsGraph(
+    object = pg.results, 
+    method = "pagerank", 
+    threshold = 0.1, 
+    data = fella.data)
+
+show(myGraph)
+
+# Metabolites
+V(myGraph)$name
+
+
+myEnzymes<-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 250, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = pg.results, 
+    data = fella.data)
+
+
+go.to.graph<-addGOToGraph(
+    graph = myGraph, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+```
+
+
+
+
+```{r,fella.hc}
+
+##### DATA - METABOLITES DERIVED FROM PARTICULAR STUDY
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.control$Ranked.Tab$Ranking <=3)
+
+input.full <- c(Annotated.List.control$Ranked.Tab$Compound[idx.ranked])  
+
+
+hc.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(hc.myAnalysis)
+
+getExcluded(hc.myAnalysis)
+
+
+
+input.fail <- paste0(" ", input.full)
+
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+hc.diff.results<-runDiffusion(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+hc.hyp.results<-runHypergeom(
+   object = hc.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+hc.pg.results<-runPagerank(
+    object = hc.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+  
+  ############################
+
+hc.myAnalysis <- enrich(
+    compounds = input.full, 
+    method = listMethods(), 
+    approx = "normality", 
+    data = fella.data)
+
+show(hc.myAnalysis)
+
+
+
+# STEP 3 : show the findings
+
+plot(
+    x = hc.hyp.results, 
+    method = "hypergeom", 
+    main = "My first enrichment using the hypergeometric test in FELLA", 
+    threshold = 1, 
+    data = fella.data)
+
+
+plot(
+    x = hc.diff.results, 
+    method = "diffusion", 
+    main = "My first enrichment using the diffusion test in FELLA", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+
+plot(
+    x = hc.pg.results, 
+    method = "pagerank", 
+    main = "My first enrichment using the pagerank test in FELLA", 
+    threshold = 0.1, 
+    nlimit = 250,
+    data = fella.data)
+
+
+# STEP 4 : GENERATE RESULTS IN TABLE AND GRAPH
+
+
+# For PageRank
+
+hc.myTable <- generateResultsTable(
+    object = hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500, 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# Pathways
+#hc.myTable[myTable$Entry.type == "CompoundsInPathway", ]
+
+
+hc.myGraph <- generateResultsGraph(
+    object =hc.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+#show(hc.myGraph)
+
+# Metabolites
+#V(hc.myGraph)$name
+
+
+hc.myEnzymes<-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = hc.pg.results, 
+    data = fella.data)
+
+
+hc.go.to.graph<-addGOToGraph(
+    graph = hc.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+```
+
+
+
+
+
+```{r,fella.phy}
+
+##### DATA - METABOLITES DERIVED FROM PARTICULAR STUDY
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.physical$Ranked.Tab$Ranking <=6)
+
+input.full <- c(Annotated.List.physical$Ranked.Tab$Compound[idx.ranked])  
+
+
+phy.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(phy.myAnalysis)
+
+getExcluded(phy.myAnalysis)
+
+
+
+input.fail <- paste0(" ", input.full)
+
+
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+phy.diff.results<-runDiffusion(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+phy.hyp.results<-runHypergeom(
+   object = phy.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+phy.pg.results<-runPagerank(
+    object = phy.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+  
+  ############################
+
+phy.myAnalysis <- enrich(
+    compounds = input.full, 
+    method = listMethods(), 
+    approx = "normality", 
+    data = fella.data)
+
+show(phy.myAnalysis)
+
+
+
+# STEP 3 : show the findings
+
+plot(
+    x = phy.hyp.results, 
+    method = "hypergeom", 
+    main = "My first enrichment using the hypergeometric test in FELLA", 
+    threshold = 1, 
+    data = fella.data)
+
+
+plot(
+    x = phy.diff.results, 
+    method = "diffusion", 
+    main = "My first enrichment using the diffusion test in FELLA", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+
+plot(
+    x = phy.pg.results, 
+    method = "pagerank", 
+    main = "My first enrichment using the pagerank test in FELLA", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# STEP 4 : GENERATE RESULTS IN TABLE AND GRAPH
+
+
+# For PageRank
+
+phy.myTable <- generateResultsTable(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# Pathways
+phy.myTable[myTable$Entry.type == "CompoundsInPathway", ]
+
+
+phy.myGraph <- generateResultsGraph(
+    object = phy.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+show(phy.myGraph)
+
+# Metabolites
+#V(phy.myGraph)$name
+
+
+phy.myEnzymes<-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = phy.pg.results, 
+    data = fella.data)
+
+
+phy.go.to.graph<-addGOToGraph(
+    graph = phy.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+
+
+
+```
+
+
+
+```{r,fella.cogn}
+
+##### DATA - METABOLITES DERIVED FROM PARTICULAR STUDY
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.cognitive$Ranked.Tab$Ranking <=6)
+
+input.full <- c(Annotated.List.cognitive$Ranked.Tab$Compound[idx.ranked])  
+
+
+cog.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(cog.myAnalysis)
+
+getExcluded(cog.myAnalysis)
+
+
+
+input.fail <- paste0(" ", input.full)
+
+
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+cog.diff.results<-runDiffusion(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+cog.hyp.results<-runHypergeom(
+   object = cog.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+cog.pg.results<-runPagerank(
+    object = cog.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+  
+  ############################
+
+cog.myAnalysis <- enrich(
+    compounds = input.full, 
+    method = listMethods(), 
+    approx = "normality", 
+    data = fella.data)
+
+show(cog.myAnalysis)
+
+
+
+# STEP 3 : show the findings
+
+plot(
+    x = cog.hyp.results, 
+    method = "hypergeom", 
+    main = "My first enrichment using the hypergeometric test in FELLA", 
+    threshold = 1, 
+    data = fella.data)
+
+
+plot(
+    x = cog.diff.results, 
+    method = "diffusion", 
+    main = "My first enrichment using the diffusion test in FELLA", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+
+plot(
+    x = cog.pg.results, 
+    method = "pagerank", 
+    main = "My first enrichment using the pagerank test in FELLA", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# STEP 4 : GENERATE RESULTS IN TABLE AND GRAPH
+
+
+# For PageRank
+
+cog.myTable <- generateResultsTable(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# Pathways
+cog.myTable[myTable$Entry.type == "CompoundsInPathway", ]
+
+
+cog.myGraph <- generateResultsGraph(
+    object = cog.pg.results, 
+    method = "pagerank", 
+    threshold = 0.1, 
+    data = fella.data)
+
+show(cog.myGraph)
+
+# Metabolites
+#V(cog.myGraph)$name
+
+
+cog.myEnzymes<-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 250, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = cog.pg.results, 
+    data = fella.data)
+
+
+cog.go.to.graph<-addGOToGraph(
+    graph = cog.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+
+
+
+
+```
+
+
+
+
+```{r,fella.comb}
+
+
+##### DATA - METABOLITES DERIVED FROM PARTICULAR STUDY
+
+
+# STEP 1 : GET THE TOP THREE RANKED COMPOUNDS FROM mWISE 
+# CONTROL
+idx.ranked<-which(Annotated.List.combined$Ranked.Tab$Ranking <=6)
+
+input.full <- c(Annotated.List.combined$Ranked.Tab$Compound[idx.ranked])  
+
+
+comb.myAnalysis <- defineCompounds(
+    compounds = input.full, 
+    data = fella.data)
+
+getInput(comb.myAnalysis)
+
+getExcluded(comb.myAnalysis)
+
+
+
+input.fail <- paste0(" ", input.full)
+
+
+
+
+# STEP 2 : run enrichment for every available method ()
+
+
+comb.diff.results<-runDiffusion(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    t.df = 10, 
+    niter = 1000)
+
+
+comb.hyp.results<-runHypergeom(
+   object = comb.myAnalysis, 
+    data = fella.data, 
+    p.adjust = "fdr")
+
+
+comb.pg.results<-runPagerank(
+    object = comb.myAnalysis, 
+    data = fella.data, 
+    approx = "normality", 
+    dampingFactor = 0.85, 
+    t.df = 10, 
+    niter = 1000) 
+  
+  ############################
+
+comb.myAnalysis <- enrich(
+    compounds = input.full, 
+    method = listMethods(), 
+    approx = "normality", 
+    data = fella.data)
+
+show(comb.myAnalysis)
+
+
+
+# STEP 3 : show the findings
+
+plot(
+    x = comb.hyp.results, 
+    method = "hypergeom", 
+    main = "My first enrichment using the hypergeometric test in FELLA", 
+    threshold = 1, 
+    data = fella.data)
+
+
+plot(
+    x = comb.diff.results, 
+    method = "diffusion", 
+    main = "My first enrichment using the diffusion test in FELLA", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+
+plot(
+    x = comb.pg.results, 
+    method = "pagerank", 
+    main = "My first enrichment using the pagerank test in FELLA", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# STEP 4 : GENERATE RESULTS IN TABLE AND GRAPH
+
+
+# For PageRank
+
+comb.myTable <- generateResultsTable(
+    object = comb.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+
+# Pathways
+comb.myTable[myTable$Entry.type == "CompoundsInPathway", ]
+
+
+comb.myGraph <- generateResultsGraph(
+    object = comb.pg.results, 
+    method = "pagerank", 
+    nlimit = 500,
+    threshold = 0.1, 
+    data = fella.data)
+
+show(comb.myGraph)
+
+# Metabolites
+comb.myGraph$name
+
+
+comb.myEnzymes<-generateEnzymesTable(
+    method = "pagerank", 
+    threshold = 0.05, 
+    nlimit = 500, 
+    LabelLengthAtPlot = 45, 
+    capPscores = 1e-6, 
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"),
+    object = comb.pg.results, 
+    data = fella.data)
+
+
+comb.go.to.graph<-addGOToGraph(
+    graph = comb.myAnalysis, 
+    GOterm = NULL, 
+    godata.options = list(
+        OrgDb = "org.Hs.eg.db", ont = "CC"),
+    mart.options = list(
+        biomart = "ensembl", dataset = "hsapiens_gene_ensembl"))
+
+
+
+
+
+```
+
+
+
+```{r,common.outcome.groups}
+
+#HC vs GROUPS
+all_equal(hc.myTable,phy.myTable)
+
+
+all_equal(hc.myTable,cog.myTable)
+
+all_equal(hc.myTable,comb.myTable)
+
+
+# between groups
+all_equal(phy.myTable,cog.myTable)
+
+all_equal(phy.myTable,comb.myTable)
+
+all_equal(cog.myTable,comb.myTable)
+
+
+
+
+
+
+hc.myTable.diff <- generateResultsTable(
+    object = hc.diff.results, 
+    method = "diffusion", 
+    threshold = 0.1, 
+    data = fella.data)
+
+phy.myTable.diff <- generateResultsTable(
+    object = phy.diff.results, 
+    method = "diffusion", 
+    threshold = 0.1, 
+    data = fella.data)
+
+cog.myTable.diff <- generateResultsTable(
+    object = cog.diff.results, 
+    method = "diffusion", 
+    threshold = 0.1, 
+    data = fella.data)
+
+comb.myTable.diff <- generateResultsTable(
+    object = comb.diff.results, 
+    method = "diffusion", 
+    threshold = 0.1, 
+    data = fella.data)
+
+
+
+all_equal(hc.myTable.diff,phy.myTable.diff)
+
+all_equal(hc.myTable.diff,cog.myTable.diff)
+
+all_equal(hc.myTable.diff,comb.myTable.diff)
+
+
+# between groups
+all_equal(phy.myTable.diff,cog.myTable.diff)
+
+all_equal(phy.myTable.diff,comb.myTable.diff)
+
+all_equal(cog.myTable.diff,comb.myTable.diff)
+
+```
+
+
+
+
+
+
+
