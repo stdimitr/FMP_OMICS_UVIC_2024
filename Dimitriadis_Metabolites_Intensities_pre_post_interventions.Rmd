@@ -1,0 +1,580 @@
+---
+title: "FMP"
+author: "Stavros Dimitriadis"
+date: "2024-02-29"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  word_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+*Preliminaries*
+
+Let's load needed packages.
+
+```{r libs}
+#library(knitr)
+library(MSnbase)
+library(tidyverse)
+library(Biobase)
+library(BiocParallel)
+
+library(xcms)
+library(faahKO)
+library(RColorBrewer)
+library(pander)
+library(pheatmap)
+library(MsExperiment)
+library(stats)
+library(SummarizedExperiment)
+
+```
+
+
+```{r,get.metabolites.intensities}
+
+# POSITIVE
+
+# POSITIVE PRE
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_positive_pre.RData")
+
+features_positive_pre <-featureValues(mov.peaks.mpp.align.corr.gap, value = "into")
+
+feature_chroms_positive_pre <- featureChromatograms(mov.peaks.mpp.align.corr.gap)
+
+
+# POSITIVE POST
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_positive_post.RData")
+
+features_positive_post <-featureValues(mov.peaks.mpp.align.corr.gap, value = "into")
+
+feature_chroms_positive_post <- featureChromatograms(mov.peaks.mpp.align.corr.gap)
+
+# NEGATIVE
+
+# NEGATIVE PRE
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_negative_pre.RData")
+
+features_negative_pre <-featureValues(mov.peaks.mpp.align.corr.gap, value = "into")
+
+feature_chroms_negative_pre <- featureChromatograms(mov.peaks.mpp.align.corr.gap)
+
+# NEGATIVE POST
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_negative_post.RData")
+
+features_negative_post <-featureValues(mov.peaks.mpp.align.corr.gap, value = "into")
+
+feature_chroms_negative_post <- featureChromatograms(mov.peaks.mpp.align.corr.gap)
+
+```
+
+
+
+
+```{r,statistics.group.intensities.pre}
+
+
+
+phy<-which(pd$sample_group == 0)
+
+cog<-which(pd$sample_group == 1)
+
+comb<-which(pd$sample_group == 2)
+
+hc<-which(pd$sample_group == 3)
+
+
+## COMPARISON OF INTENSITIES BETWEEN GROUP IN PRE-INTERVENTION PERIOD
+
+## POSITIVE MODE
+
+## hc vs physical group
+
+stat.pos.pre.hc.phy <- NULL
+
+ for (a in 1:2079) {
+     stat <- wilcox.test(log2(features_positive_pre[a,hc]),log2(features_positive_pre[a,phy]))
+     stat.pos.pre.hc.phy[a]<-stat$p.value
+  }
+
+
+which(stat.pos.pre.hc.phy<0.0001)
+
+
+## hc vs cog group
+
+stat.pos.pre.hc.cog <- NULL
+
+ for (a in 1:2079) {
+     stat <- wilcox.test(log2(features_positive_pre[a,hc]),log2(features_positive_pre[a,cog]))
+     stat.pos.pre.hc.cog[a]<-stat$p.value
+  }
+
+
+which(stat.pos.pre.hc.cog<0.0001)
+
+
+## hc vs comb group
+
+stat.pos.pre.hc.comb <- NULL
+
+ for (a in 1:2079) {
+     stat <- wilcox.test(log2(features_positive_pre[a,hc]),log2(features_positive_pre[a,comb]))
+     stat.pos.pre.hc.comb[a]<-stat$p.value
+  }
+
+
+which(stat.pos.pre.hc.comb<0.0001)
+
+
+
+
+## NEGATIVE MODE
+
+## hc vs physical group
+
+stat.neg.pre.hc.phy <- NULL
+
+ for (a in 1:2444) {
+     stat <- wilcox.test(log2(features_negative_pre[a,hc]),log2(features_negative_pre[a,phy]))
+     stat.neg.pre.hc.phy[a]<-stat$p.value
+  }
+
+
+which(stat.neg.pre.hc.phy<0.0001)
+
+
+## hc vs cog group
+
+stat.neg.pre.hc.cog <- NULL
+
+ for (a in 1:2444) {
+     stat <- wilcox.test(log2(features_negative_pre[a,hc]),log2(features_negative_pre[a,cog]))
+     stat.neg.pre.hc.cog[a]<-stat$p.value
+  }
+
+
+which(stat.neg.pre.hc.cog<0.0001)
+
+
+## hc vs comb group
+
+stat.neg.pre.hc.comb <- NULL
+
+ for (a in 1:2444) {
+     stat <- wilcox.test(log2(features_negative_pre[a,hc]),log2(features_negative_pre[a,comb]))
+     stat.neg.pre.hc.comb[a]<-stat$p.value
+  }
+
+
+which(stat.neg.pre.hc.comb<0.0001)
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r,statistics.group.intensities.pre.post}
+
+
+
+## COMPARISON OF INTENSITIES BETWEEN  PRE-POST INTERVENTION PERIODS PER GROUP
+
+## POSITIVE MODE
+
+## hc  group
+
+stat.pos.pre.post.hc <- NULL
+
+ for (a in 1:2079) {
+      vec1<- log2(features_positive_post[a,hc])
+      vec2<- log2(features_positive_pre[a,hc])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.pos.pre.post.hc[a]<-stat$p.value
+  }
+
+
+idx<-which(stat.pos.pre.post.hc<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_positive_post[a,hc])))
+      no.nan.pre <-which(!is.na(log2(features_positive_pre[a,hc])))
+      
+      vec1<- log2(features_positive_post[a,hc])
+      vec2<- log2(features_positive_pre[a,hc])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+## phy group
+
+stat.pos.pre.post.phy <- NULL
+
+ for (a in 1:2079) {
+    vec1<- log2(features_positive_post[a,phy])
+      vec2<- log2(features_positive_pre[a,phy])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.pos.pre.post.phy[a]<-stat$p.value
+  }
+
+
+
+idx<-which(stat.pos.pre.post.phy<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_positive_post[a,phy])))
+      no.nan.pre <-which(!is.na(log2(features_positive_pre[a,phy])))
+      
+      vec1<- log2(features_positive_post[a,phy])
+      vec2<- log2(features_positive_pre[a,phy])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+## cog group
+
+stat.pos.pre.post.cog <- NULL
+
+ for (a in 1:2079) {
+      vec1<- log2(features_positive_post[a,cog])
+      vec2<- log2(features_positive_pre[a,cog])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.pos.pre.post.cog[a]<-stat$p.value
+  }
+
+
+idx<-which(stat.pos.pre.post.cog<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_positive_post[a,cog])))
+      no.nan.pre <-which(!is.na(log2(features_positive_pre[a,cog])))
+      
+      vec1<- log2(features_positive_post[a,cog])
+      vec2<- log2(features_positive_pre[a,cog])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+
+##  comb group
+
+stat.pos.pre.post.comb <- NULL
+
+ for (a in 1:2079) {
+      vec1<- log2(features_positive_post[a,comb])
+      vec2<- log2(features_positive_pre[a,comb])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.pos.pre.post.comb[a]<-stat$p.value
+  }
+
+
+
+idx<-which(stat.pos.pre.post.comb<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_positive_post[a,comb])))
+      no.nan.pre <-which(!is.na(log2(features_positive_pre[a,comb])))
+      
+      vec1<- log2(features_positive_post[a,comb])
+      vec2<- log2(features_positive_pre[a,comb])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+
+
+
+## NEGATIVE MODE
+
+## hc  group
+
+stat.neg.pre.post.hc <- NULL
+
+ for (a in 1:2444) {
+     vec1<- log2(features_negative_post[a,hc])
+      vec2<- log2(features_negative_pre[a,hc])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.neg.pre.post.hc[a]<-stat$p.value
+  }
+
+
+idx<-which(stat.neg.pre.post.hc<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_negative_post[a,hc])))
+      no.nan.pre <-which(!is.na(log2(features_negative_pre[a,hc])))
+      
+      vec1<- log2(features_negative_post[a,hc])
+      vec2<- log2(features_negative_pre[a,hc])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+## phy group
+
+stat.neg.pre.post.phy <- NULL
+
+ for (a in 1:2444) {
+    vec1<- log2(features_negative_post[a,phy])
+      vec2<- log2(features_negative_pre[a,phy])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.neg.pre.post.phy[a]<-stat$p.value
+  }
+
+
+
+idx<-which(stat.neg.pre.post.phy<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_negative_post[a,phy])))
+      no.nan.pre <-which(!is.na(log2(features_negative_pre[a,phy])))
+      
+      vec1<- log2(features_negative_post[a,phy])
+      vec2<- log2(features_negative_pre[a,phy])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+## cog group
+
+stat.neg.pre.post.cog <- NULL
+
+ for (a in 1:2444) {
+     vec1<- log2(features_negative_post[a,cog])
+      vec2<- log2(features_negative_pre[a,cog])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.neg.pre.post.cog[a]<-stat$p.value
+  }
+
+
+idx<-which(stat.neg.pre.post.cog<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_negative_post[a,cog])))
+      no.nan.pre <-which(!is.na(log2(features_negative_pre[a,cog])))
+      
+      vec1<- log2(features_negative_post[a,cog])
+      vec2<- log2(features_negative_pre[a,cog])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+
+##  comb group
+
+stat.neg.pre.post.comb <- NULL
+
+ for (a in 1:2444) {
+     vec1<- log2(features_negative_post[a,comb])
+      vec2<- log2(features_negative_pre[a,comb])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+      
+     stat <- wilcox.test(vec1,vec2)
+     stat.neg.pre.post.comb[a]<-stat$p.value
+  }
+
+
+
+idx<-which(stat.neg.pre.post.comb<0.05/2079)
+length(idx)
+
+higher<-0
+lower<-0
+
+for (a in 1:length(idx)){
+  
+      no.nan.post <-which(!is.na(log2(features_negative_post[a,comb])))
+      no.nan.pre <-which(!is.na(log2(features_negative_pre[a,comb])))
+      
+      vec1<- log2(features_negative_post[a,comb])
+      vec2<- log2(features_negative_pre[a,comb])
+        
+      vec1 = vec1[!is.na(vec1)];
+      vec2 = vec2[!is.na(vec2)];
+            
+     if (mean(vec1) > mean(vec2) )
+       higher<- higher + 1
+     else
+       lower<-lower + 1
+}
+
+higher
+lower
+
+
+
+
+
+```

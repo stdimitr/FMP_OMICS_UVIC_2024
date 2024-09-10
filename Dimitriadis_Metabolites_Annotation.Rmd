@@ -1,0 +1,990 @@
+---
+title: "FMP"
+author: "Stavros Dimitriadis"
+date: "2024-02-29"
+output:
+  html_document:
+    highlight: default
+    number_sections: yes
+    theme: readable
+    toc: yes
+    toc_depth: 2
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+  word_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+
+*Preliminaries*
+
+Let's load needed packages.
+
+```{r libs}
+#library(knitr)
+library(MSnbase)
+library(tidyverse)
+library(Biobase)
+library(BiocParallel)
+
+library(xcms)
+library(faahKO)
+library(RColorBrewer)
+library(pander)
+library(pheatmap)
+library(MsExperiment)
+library(stats)
+library(SummarizedExperiment)
+library(mWISE)
+library(FELLA)
+
+library(curl)
+library(piggyback)
+library(CompoundDb)
+
+library(MetaboAnnotation)
+```
+
+
+
+
+
+
+# STEP 1 :Below we download the database from github to a temporary folder.
+
+```{r, eval = TRUE, echo = TRUE}
+
+#' Download the CompDb database using curl
+library(curl)
+
+dbname <- "CompDb.Hsapiens.HMDB.5.0.sqlite"
+db_file <- file.path(tempdir(), dbname)
+curl_download(
+    paste0("https://github.com/jorainer/MetaboAnnotationTutorials/",
+           "releases/download/2021-11-02/", dbname),
+    destfile = db_file)
+```
+
+
+```{r, eval = FALSE, echo = FALSE}
+
+library(piggyback)
+
+#' Download the SQLite database from github.
+dbname <- "CompDb.Hsapiens.HMDB.5.0.sqlite"
+pb_download(dbname,
+            repo = "jorainer/MetaboAnnotationTutorials",
+            tag = "2021-11-02",
+            dest = tempdir())
+db_file <- file.path(tempdir(), dbname)
+
+```
+
+#STEP 2 : We next load the database using the `CompoundDb` package.
+
+
+
+```{r}
+
+
+library(CompoundDb)
+#' Load a CompDb database with compound annotation from HMDB
+cdb <- CompDb(db_file)
+cdb
+
+
+```
+
+## Annotation using *m/z* values {#ms1mz}
+
+We next extract all peaks from the `xcms` result object and annotate them using
+the `matchMz` function against all compounds from HMDB (the compound annotations
+can be extracted from the `CompDb` database with the `compounds` function). The
+reference database does not provide *m/z* values but only exact masses for each
+compound. Thus, in order to annotate our chromatographic peaks' *m/z* values,
+*m/z* values for expected ions of the compounds need to be calculated
+first. With `Mass2MzParam` we can configure the parameters for the
+annotation. Parameter `adducts` allows to specify the adducts (ions) we expect
+to see mostly in the data set. For our example we assume to see mostly `[M+H]+`
+and `[M+Na]+` positive ions. With parameters `tolerance` and `ppm` we can
+finally define also the absolute and/or *m/z* relative acceptable difference,
+respectively, for *m/z* values to be considered matching.
+
+
+
+```{r}
+
+library(MetaboAnnotation)
+
+#' Get the chromatographic peaks and add a column with the peak_id
+pks <- data.frame(peak_id = rownames(chromPeaks(mov.peaks.mpp)),
+                  chromPeaks(mov.peaks.mpp))
+
+#' Set parameters for the m/z-based annotation
+param <- Mass2MzParam(adducts = c("[M+H]+", "[M+Na]+"),
+                      tolerance = 0, ppm = 10)
+
+#' Perform the matching
+pks_match <- matchMz(
+    pks,
+    compounds(cdb, c("compound_id", "exactmass", "formula", "name")),
+    param = param)
+
+pks_match
+
+head(matches(pks_match))
+
+matchedData(pks_match, c("peak_id", "target_name",
+                         "target_formula", "adduct"))
+
+matches(pks_match)[, 1] |>
+table() |>
+mean()
+
+
+# GET MATCHED COMPOUNDS PER SUBJECT
+
+matches.compound<- matrix(1:260964, nrow=260964, ncol=1)
+metabolites.intensity <- matrix(1:260964, nrow=260964, ncol=1)
+
+for (i in 1:260964 ) {
+     print(i)
+     matched <- matchedData(pks_match[i], c("peak_id", "target_name",
+                            "target_formula", "target_compound_id", "adduct")) 
+     matches.compound[i,] <- matched[1,4]
+}
+
+library(foreach)
+library(doParallel)
+
+#setup parallel backend to use many processors
+cores=detectCores()
+cl <- makeCluster(cores) #not to overload your computer
+registerDoParallel(cl)
+clusterCall(cl, function(x) .libPaths(x), .libPaths())
+
+
+#Parallelize for loop
+
+matches.compound <- foreach(i=1:10) %dopar% {
+  
+  source("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/matching_metabolites.R") # That is the main point. Source your Function File here.
+  temp <- matching_metabolites(i,matchedData) # use your custom function after sourcing 
+  temp
+   
+  # matched <- matchedData(pks_match[i], c("peak_id", "target_name",
+  #                          "target_formula", "target_compound_id", "adduct")) 
+   #  matches.compound[i,] <- matched[1,4]
+}
+
+
+stopCluster(cl)
+
+
+#Get the intensity of metabolites
+metabolites.intensity <- pks_match@query$into
+
+```
+
+
+
+
+```{r,metabolites.annotation.moviment}
+
+# POSITIVE PRE
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_positive_pre.RData")
+
+#' Get the chromatographic peaks and add a column with the peak_id
+pks.pos.pre <- data.frame(peak_id = rownames(chromPeaks(mov.peaks.mpp)),
+                  chromPeaks(mov.peaks.mpp))
+
+#' Set parameters for the m/z-based annotation
+param <- Mass2MzParam(adducts = c("[M+H]+", "[M+Na]+"),
+                      tolerance = 0, ppm = 10)
+
+#' Perform the matching
+pks_match.pos.pre <- matchMz(
+    pks.pos.pre,
+    compounds(cdb, c("compound_id", "exactmass", "formula", "name")),
+    param = param)
+
+pks_match.pos.pre
+
+head(matches(pks_match.pos.pre))
+
+matchedData(pks_match.pos.pre, c("peak_id", "target_name",
+                         "target_formula", "adduct"))
+
+matches(pks_match.pos.pre)[, 1] |>
+table() |>
+mean()
+
+
+# GET MATCHED COMPOUNDS PER SUBJECT
+
+matches.compound.pos.pre <- matrix(1:260964, nrow=260964, ncol=1)
+metabolites.intensity.pos.pre <- matrix(1:260964, nrow=260964, ncol=1)
+
+for (i in 1:260964 ) {
+     print(i)
+     matched <- matchedData(pks_match.pos.pre[i], c("peak_id", "target_name",
+                            "target_formula", "target_compound_id", "adduct")) 
+     matches.compound.pos.pre[i,] <- matched[1,4]
+}
+
+
+#Get the intensity of metabolites
+metabolites.intensity.pos.pre <- pks_match.pos.pre@query$into
+
+
+
+#Parallelize for loop
+
+#matches.compound <- foreach(i=1:10, .combine=cbind) %dopar% {
+ #   matched <- matchedData(pks_match[i], c("peak_id", "target_name",
+ #                           "target_formula", "target_compound_id", "adduct")) 
+#     matches.compound <- cbind(matches.compound,matched[1,4])}
+
+
+
+
+
+# POSITIVE POST
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_positive_post.RData")
+
+
+
+#' Get the chromatographic peaks and add a column with the peak_id
+pks.pos.post <- data.frame(peak_id = rownames(chromPeaks(mov.peaks.mpp)),
+                  chromPeaks(mov.peaks.mpp))
+
+#' Set parameters for the m/z-based annotation
+param <- Mass2MzParam(adducts = c("[M+H]+", "[M+Na]+"),
+                      tolerance = 0, ppm = 10)
+
+#' Perform the matching
+pks_match.pos.post <- matchMz(
+    pks.pos.post,
+    compounds(cdb, c("compound_id", "exactmass", "formula", "name")),
+    param = param)
+
+pks_match.pos.post
+
+head(matches(pks_match.pos.post))
+
+matchedData(pks_match.pos.post, c("peak_id", "target_name",
+                         "target_formula", "adduct"))
+
+matches(pks_match.pos.post)[, 1] |>
+table() |>
+mean()
+
+
+# GET MATCHED COMPOUNDS PER SUBJECT
+
+matches.compound.pos.post <- matrix(1:260964, nrow=260964, ncol=1)
+metabolites.intensity.pos.post <- matrix(1:260964, nrow=260964, ncol=1)
+
+for (i in 1:260964 ) {
+     print(i)
+     matched <- matchedData(pks_match.pos.post[i], c("peak_id", "target_name",
+                            "target_formula", "target_compound_id", "adduct")) 
+     matches.compound.pos.post[i,] <- matched[1,4]
+}
+
+
+
+#Get the intensity of metabolites
+metabolites.intensity.pos.post <- pks_match.pos.post@query$into
+
+
+#########################################################################################
+
+
+# NEGATIVE PRE
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_negative_pre.RData")
+
+#' Get the chromatographic peaks and add a column with the peak_id
+pks.neg.pre <- data.frame(peak_id = rownames(chromPeaks(mov.peaks.mpp)),
+                  chromPeaks(mov.peaks.mpp))
+
+#' Set parameters for the m/z-based annotation
+param <- Mass2MzParam(adducts = c("[M+H]+", "[M+Na]+"),
+                      tolerance = 0, ppm = 10)
+
+#' Perform the matching
+pks_match.neg.pre <- matchMz(
+    pks.neg.pre,
+    compounds(cdb, c("compound_id", "exactmass", "formula", "name")),
+    param = param)
+
+pks_match.neg.pre
+
+head(matches(pks_match.neg.pre))
+
+matchedData(pks_match.neg.pre, c("peak_id", "target_name",
+                         "target_formula", "adduct"))
+
+matches(pks_match.neg.pre)[, 1] |>
+table() |>
+mean()
+
+
+len<-length(pks.neg.pre[,1])
+
+# GET MATCHED COMPOUNDS PER SUBJECT
+
+matches.compound.neg.pre <- matrix(1:len, nrow=len, ncol=1)
+metabolites.intensity.neg.pre <- matrix(1:len, nrow=len, ncol=1)
+
+for (i in 1:len ) {
+     print(i)
+     matched <- matchedData(pks_match.neg.pre[i], c("peak_id", "target_name",
+                            "target_formula", "target_compound_id", "adduct")) 
+     matches.compound.neg.pre[i,] <- matched[1,4]
+}
+
+
+#Get the intensity of metabolites
+metabolites.intensity.neg.pre <- pks_match.neg.pre@query$into
+
+
+
+
+
+
+
+
+
+
+
+# NEGATIVE POST
+
+#LOAD THE SESSION
+
+load("C:/Users/mpnsd/Desktop/BARCELONA/MOVIMENT-PROJECT/Metabolomics/Dimitriadis_moviment_metabolomics_negative_post.RData")
+
+#' Get the chromatographic peaks and add a column with the peak_id
+pks.neg.post <- data.frame(peak_id = rownames(chromPeaks(mov.peaks.mpp)),
+                  chromPeaks(mov.peaks.mpp))
+
+#' Set parameters for the m/z-based annotation
+param <- Mass2MzParam(adducts = c("[M+H]+", "[M+Na]+"),
+                      tolerance = 0, ppm = 10)
+
+#' Perform the matching
+pks_match.neg.post <- matchMz(
+    pks.neg.post,
+    compounds(cdb, c("compound_id", "exactmass", "formula", "name")),
+    param = param)
+
+pks_match.neg.post
+
+head(matches(pks_match.neg.post))
+
+matchedData(pks_match.neg.post, c("peak_id", "target_name",
+                         "target_formula", "adduct"))
+
+matches(pks_match.neg.post)[, 1] |>
+table() |>
+mean()
+
+
+len<-length(pks.neg.post[,1])
+
+# GET MATCHED COMPOUNDS PER SUBJECT
+
+matches.compound.neg.post <- matrix(1:len, nrow=len, ncol=1)
+metabolites.intensity.neg.post <- matrix(1:len, nrow=len, ncol=1)
+
+for (i in 1:len ) {
+     print(i)
+     matched <- matchedData(pks_match.neg.post[i], c("peak_id", "target_name",
+                            "target_formula", "target_compound_id", "adduct")) 
+     matches.compound.neg.post[i,] <- matched[1,4]
+}
+
+
+#Get the intensity of metabolites
+metabolites.intensity.neg.post <- pks_match.neg.post@query$into
+
+
+
+
+
+
+
+```
+
+
+
+
+```{r,find.common.metabolites.group.positive}
+
+#keeping metabolites' intensity
+metabolites.intensity.pos.pre
+
+# keeping metabolites' IDs
+matches.compound.pos.pre
+
+
+# keeping the matching of metabolites found in the sample based on m/z with
+# libraries
+pks.pos.pre
+
+
+## FIND COMMON METABOLITES ACROSS PRE-INTERVENTION PERIOD IN POSITIVE IONIZATION
+## WITH INTERSECTION
+
+idx<-which(pks.pos.pre$sample == 1)
+v1<-unique(matches.compound.pos.pre[idx])
+
+
+idx.pos.pre<-NULL
+for (i in 2:82){
+    
+   idx<-which(pks.pos.pre$sample == i)
+   v2<-unique(matches.compound.pos.pre[idx])
+   
+   
+   idx.pos.pre<-intersect(unique(v1),unique(v2))
+  
+  # new v1 should be the v2    
+   v1 <- v2   
+  
+}
+
+
+## FIND COMMON METABOLITES ACROSS POST-INTERVENTION PERIOD IN POSITIVE IONIZATION
+## WITH INTERSECTION
+
+idx<-which(pks.pos.post$sample == 1)
+v1<-unique(matches.compound.pos.post[idx])
+
+idx.pos.post<-NULL
+for (i in 2:82){
+    
+   idx<-which(pks.pos.post$sample == i)
+   v2<-unique(matches.compound.pos.post[idx])
+   
+   
+   idx.pos.post<-intersect(unique(v1),unique(v2))
+  
+  # new v1 should be the v2    
+   v1 <- v2   
+  
+}
+
+
+## FIND COMMON METABOLITES ACROSS POST-INTERVENTION PERIOD IN POSITIVE IONIZATION
+## WITH INTERSECTION
+
+common.metabolites.pos<-intersect(idx.pos.pre,idx.pos.post)
+common.metabolites.pos<-common.metabolites.pos[-2] # remove NA
+
+
+## We got 774 common metabolites across subjects and pre-post intervention period
+
+## Now, we should get the indices 
+
+#which(!lengths(Map(setdiff, list(v2), asplit(common.metabolites.pos, 1))))
+
+#out<-which(apply(common.metabolites.pos, 1, function(x) all(x %in% v2)))
+
+###############################################
+
+##GET THE INDEXES AND THE INTENSITIES OF COMMON METABOLITES BETWEEN
+## PRE - POST INTERVENTION ACROSS SUBJECTS
+
+
+# POSITIVE  - PRE
+
+len<-length(common.metabolites.pos)
+int.pos.pre<- matrix(1:len*82, nrow=82, ncol=len)
+  
+
+for (i in 1:82){
+    idx<-which(pks.pos.pre$sample == i)
+    v1<-matches.compound.pos.pre[idx]
+    
+    index<-NULL
+    count<-0
+    for (a in 1:length(common.metabolites.pos)) {
+         ii <- match(common.metabolites.pos[a],v1)
+         
+         if (length(ii) > 0) {
+            count<-count+1
+            index[count]<- ii[1]
+         }
+        }
+    
+    #index<-which(v1%in%common.metabolites.pos==TRUE)  
+    #out<-intersect(v1,commocommon.metabolites.pos)
+    #index<-unique(match(v1,out))
+    
+    int.pos.pre[i,]<-metabolites.intensity.pos.pre[index]
+  }
+
+  
+  
+# POSITIVE  - POST
+
+len<-length(common.metabolites.pos)
+int.pos.post<- matrix(1:len*82, nrow=82, ncol=len)
+  
+
+for (i in 1:82){
+    idx<-which(pks.pos.post$sample == i)
+    v1<-matches.compound.pos.post[idx]
+    
+    index<-NULL
+    count<-0
+    for (a in 1:length(common.metabolites.pos)) {
+         ii <- match(common.metabolites.pos[a],v1)
+         
+         if (length(ii) > 0) {
+            count<-count+1
+            index[count]<- ii[1]
+         }
+        }
+    
+    #index<-which(v1%in%common.metabolites.pos==TRUE)  
+    #out<-intersect(v1,commocommon.metabolites.pos)
+    #index<-unique(match(v1,out))
+    
+    int.pos.post[i,]<-metabolites.intensity.pos.post[index]
+  }
+
+
+## STATISTICS :
+
+## PRE-INTERVENTION CONDITION GROUP COMPARISONS WITH THE PASSIVE CONTROL
+
+## CONTROL VS PHYSICAL
+
+stat.pos.pre.con.phy<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.pos)){
+  
+     vec1 <- int.pos.pre[idx.control,a]
+     vec2 <- int.pos.pre[idx.physical,a]
+     stat <- wilcox.test(vec1,vec2)
+     stat.pos.pre.con.phy[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.pos.pre.con.phy<0.05/len)
+
+
+
+## CONTROL VS COGNITIVE
+
+stat.pos.pre.con.cog<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.pos)){
+  
+     vec1 <- int.pos.pre[idx.control,a]
+     vec2 <- int.pos.pre[idx.cognitive,a]
+     stat <- wilcox.test(vec1,vec2)
+     stat.pos.pre.con.cog[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.pos.pre.con.cog<0.05/len)
+
+
+## CONTROL VS COMBINED
+
+stat.pos.pre.con.comb<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.pos)){
+  
+     vec1 <- int.pos.pre[idx.control,a]
+     vec2 <- int.pos.pre[idx.combined,a]
+     stat <- wilcox.test(vec1,vec2)
+     stat.pos.pre.con.comb[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.pos.pre.con.comb<0.05/len)
+
+
+## PRE-POST INTERVENTION COMPARISONS PER GROUP
+
+## CONTROL 
+
+stat.pos.pre.con.con<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.pos)){
+  
+     vec1 <- int.pos.pre[idx.control,a]
+     vec2 <- int.pos.post[idx.control,a]
+     # stat <- wilcox.test(vec1,vec2)
+     stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.pos.pre.con.con[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.pos.pre.con.con<0.05/len)
+
+
+
+## PHYSICAL 
+
+stat.pos.pre.phy.phy<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.pos)){
+  
+     vec1 <- int.pos.pre[idx.physical,a]
+     vec2 <- int.pos.post[idx.physical,a]
+     #stat <- wilcox.test(vec1,vec2)
+     stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.pos.pre.phy.phy[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.pos.pre.phy.phy<0.05/len)
+
+
+
+## COGNITIVE 
+
+stat.pos.pre.cog.cog<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.pos)){
+  
+     vec1 <- int.pos.pre[idx.cognitive,a]
+     vec2 <- int.pos.post[idx.cognitive,a]
+     #stat <- wilcox.test(vec1,vec2)
+     stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.pos.pre.cog.cog[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.pos.pre.cog.cog<0.05/len)
+
+
+
+## COMBINED
+
+stat.pos.pre.comb.comb<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.pos)){
+  
+     vec1 <- int.pos.pre[idx.combined,a]
+     vec2 <- int.pos.post[idx.combined,a]
+     #stat <- wilcox.test(vec1,vec2)
+     stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.pos.pre.comb.comb[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.pos.pre.comb.comb<0.05/len)
+
+
+```
+
+
+
+
+
+```{r,find.common.metabolites.group.negative}
+
+#keeping metabolites' intensity
+metabolites.intensity.neg.pre
+
+# keeping metabolites' IDs
+matches.compound.neg.pre
+
+
+# keeping the matching of metabolites found in the sample based on m/z with
+# libraries
+pks.pos.pre
+
+
+## FIND COMMON METABOLITES ACROSS PRE-INTERVENTION PERIOD IN POSITIVE IONIZATION
+## WITH INTERSECTION
+
+idx<-which(pks.neg.pre$sample == 1)
+v1<-unique(matches.compound.neg.pre[idx])
+
+
+idx.neg.pre<-NULL
+for (i in 2:82){
+    
+   idx<-which(pks.neg.pre$sample == i)
+   v2<-unique(matches.compound.neg.pre[idx])
+   
+   
+   idx.neg.pre<-intersect(unique(v1),unique(v2))
+  
+  # new v1 should be the v2    
+   v1 <- v2   
+  
+}
+
+
+## FIND COMMON METABOLITES ACROSS POST-INTERVENTION PERIOD IN POSITIVE IONIZATION
+## WITH INTERSECTION
+
+idx<-which(pks.neg.post$sample == 1)
+v1<-unique(matches.compound.neg.post[idx])
+
+idx.neg.post<-NULL
+for (i in 2:82){
+    
+   idx<-which(pks.neg.post$sample == i)
+   v2<-unique(matches.compound.neg.post[idx])
+   
+   
+   idx.neg.post<-intersect(unique(v1),unique(v2))
+  
+  # new v1 should be the v2    
+   v1 <- v2   
+  
+}
+
+
+## FIND COMMON METABOLITES ACROSS POST-INTERVENTION PERIOD IN POSITIVE IONIZATION
+## WITH INTERSECTION
+
+common.metabolites.neg<-intersect(idx.neg.pre,idx.neg.post)
+common.metabolites.neg<-common.metabolites.neg[-1] # remove NA
+
+
+## We got 974 common metabolites across subjects and pre-post intervention period
+
+## Now, we should get the indices 
+
+#which(!lengths(Map(setdiff, list(v2), asplit(common.metabolites.pos, 1))))
+
+#out<-which(apply(common.metabolites.pos, 1, function(x) all(x %in% v2)))
+
+###############################################
+
+##GET THE INDEXES AND THE INTENSITIES OF COMMON METABOLITES BETWEEN
+## PRE - POST INTERVENTION ACROSS SUBJECTS
+
+
+# NEGATIVE  - PRE
+
+len<-length(common.metabolites.neg)
+int.neg.pre<- matrix(1:len*82, nrow=82, ncol=len)
+  
+
+for (i in 1:82){
+    idx<-which(pks.neg.pre$sample == i)
+    v1<-matches.compound.neg.pre[idx]
+    
+    index<-NULL
+    count<-0
+    for (a in 1:length(common.metabolites.neg)) {
+         ii <- match(common.metabolites.neg[a],v1)
+         
+         if (length(ii) > 0) {
+            count<-count+1
+            index[count]<- ii[1]
+         }
+        }
+    
+    #index<-which(v1%in%common.metabolites.pos==TRUE)  
+    #out<-intersect(v1,commocommon.metabolites.pos)
+    #index<-unique(match(v1,out))
+    
+    int.neg.pre[i,]<-metabolites.intensity.neg.pre[index]
+  }
+
+  
+  
+# NEGATIVE  - POST
+
+len<-length(common.metabolites.neg)
+int.neg.post<- matrix(1:len*82, nrow=82, ncol=len)
+  
+
+for (i in 1:82){
+    idx<-which(pks.neg.post$sample == i)
+    v1<-matches.compound.neg.post[idx]
+    
+    index<-NULL
+    count<-0
+    for (a in 1:length(common.metabolites.neg)) {
+         ii <- match(common.metabolites.neg[a],v1)
+         
+         if (length(ii) > 0) {
+            count<-count+1
+            index[count]<- ii[1]
+         }
+        }
+    
+    #index<-which(v1%in%common.metabolites.pos==TRUE)  
+    #out<-intersect(v1,commocommon.metabolites.pos)
+    #index<-unique(match(v1,out))
+    
+    int.neg.post[i,]<-metabolites.intensity.neg.post[index]
+  }
+
+
+## STATISTICS :
+
+## PRE-INTERVENTION CONDITION GROUP COMPARISONS WITH THE PASSIVE CONTROL
+
+## CONTROL VS PHYSICAL
+
+stat.neg.pre.con.phy<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.neg)){
+  
+     vec1 <- int.neg.pre[idx.control,a]
+     vec2 <- int.neg.pre[idx.physical,a]
+     stat <- wilcox.test(vec1,vec2)
+     stat.neg.pre.con.phy[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.neg.pre.con.phy<0.05/len)
+
+
+
+## CONTROL VS COGNITIVE
+
+stat.neg.pre.con.cog<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.neg)){
+  
+     vec1 <- int.neg.pre[idx.control,a]
+     vec2 <- int.neg.pre[idx.cognitive,a]
+     stat <- wilcox.test(vec1,vec2)
+     stat.neg.pre.con.cog[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.neg.pre.con.cog<0.05/len)
+
+
+## CONTROL VS COMBINED
+
+stat.neg.pre.con.comb<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.neg)){
+  
+     vec1 <- int.neg.pre[idx.control,a]
+     vec2 <- int.neg.pre[idx.combined,a]
+     stat <- wilcox.test(vec1,vec2)
+     stat.neg.pre.con.comb[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.neg.pre.con.comb<0.05/len)
+
+
+## PRE-POST INTERVENTION COMPARISONS PER GROUP
+
+## CONTROL 
+
+stat.neg.pre.con.con<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.neg)){
+  
+     vec1 <- int.neg.pre[idx.control,a]
+     vec2 <- int.neg.post[idx.control,a]
+     #stat <- wilcox.test(vec1,vec2)
+     stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.neg.pre.con.con[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.neg.pre.con.con<0.05/len)
+
+
+
+## PHYSICAL 
+
+stat.neg.pre.phy.phy<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.neg)){
+  
+     vec1 <- int.neg.pre[idx.physical,a]
+     vec2 <- int.neg.post[idx.physical,a]
+     #stat <- wilcox.test(vec1,vec2)
+    stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.neg.pre.phy.phy[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.neg.pre.phy.phy<0.05/len)
+
+
+
+## COGNITIVE 
+
+stat.neg.pre.cog.cog<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.neg)){
+  
+     vec1 <- int.neg.pre[idx.cognitive,a]
+     vec2 <- int.neg.post[idx.cognitive,a]
+     #stat <- wilcox.test(vec1,vec2)
+     stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.neg.pre.cog.cog[a]<-stat$p.value
+  
+}
+
+# Bonferroni Correction
+which(stat.neg.pre.cog.cog<0.05/len)
+
+
+
+## COMBINED
+
+stat.neg.pre.comb.comb<- matrix(1:len, nrow=1, ncol=len)
+
+for (a in 1:length(common.metabolites.neg)){
+  
+     vec1 <- int.neg.pre[idx.combined,a]
+     vec2 <- int.neg.post[idx.combined,a]
+     #stat <- wilcox.test(vec1,vec2)
+     stat <- exactRankTests::wilcox.exact(vec1,vec2)
+     stat.neg.pre.comb.comb[a]<-stat$p.value
+    
+}
+
+# Bonferroni Correction
+which(stat.neg.pre.comb.comb<0.05/len)
+
+
+```
+
+
+
+
